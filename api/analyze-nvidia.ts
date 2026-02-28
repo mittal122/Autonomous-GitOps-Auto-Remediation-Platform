@@ -1,3 +1,4 @@
+
 import { NextApiRequest, NextApiResponse } from "next";
 import OpenAI from "openai";
 
@@ -11,7 +12,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     return res.status(405).json({ error: "Method not allowed" });
   }
 
-  const { ticker, position } = req.body;
+  const { ticker, position, currency } = req.body;
   if (!ticker) {
     return res.status(400).json({ error: "Ticker is required" });
   }
@@ -19,6 +20,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   const prompt = `
     You are a senior quantitative trader at Citadel who combines technical analysis with statistical models to time entries and exits.
     Analyze the stock ticker: ${ticker}. ${position ? `Current position: ${position}` : "No current position."}
+
+    All price values, levels, and trade plan numbers must be in ${currency || "USD"}. Use the correct currency symbol and format for all numbers. If the ticker is a cryptocurrency, use the selected currency for all fiat conversions.
 
     Provide a full technical analysis breakdown including:
     1. Current trend direction on daily, weekly, and monthly timeframes.

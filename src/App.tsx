@@ -1,4 +1,12 @@
 import React, { useState } from "react";
+const CURRENCIES = [
+  { code: "USD", symbol: "$", label: "US Dollar" },
+  { code: "EUR", symbol: "€", label: "Euro" },
+  { code: "GBP", symbol: "£", label: "British Pound" },
+  { code: "INR", symbol: "₹", label: "Indian Rupee" },
+  { code: "JPY", symbol: "¥", label: "Japanese Yen" },
+  // Add more as needed
+];
 import { 
   TrendingUp, 
   TrendingDown, 
@@ -47,6 +55,7 @@ const generateSimulatedData = () => {
 export default function App() {
   const [ticker, setTicker] = useState("");
   const [position, setPosition] = useState("");
+  const [currency, setCurrency] = useState("USD");
   const [loading, setLoading] = useState(false);
   const [analysis, setAnalysis] = useState<TechnicalAnalysis | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -59,7 +68,7 @@ export default function App() {
     setLoading(true);
     setError(null);
     try {
-      const result = await analyzeStockNvidia(ticker, position);
+      const result = await analyzeStockNvidia(ticker, position, currency);
       setAnalysis(result);
     } catch (err: any) {
       setError(err.message || "An unexpected error occurred.");
@@ -82,12 +91,25 @@ export default function App() {
               <p className="text-[10px] text-gray-500 font-mono uppercase tracking-widest">Quantitative Technical Analysis</p>
             </div>
           </div>
-          <div className="hidden md:flex items-center gap-6 text-xs font-mono uppercase tracking-widest text-gray-400">
+          <div className="flex items-center gap-6 text-xs font-mono uppercase tracking-widest text-gray-400">
             <div className="flex items-center gap-2">
               <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
               Live Terminal
             </div>
             <span>System v4.2.0</span>
+            <div className="flex items-center gap-2 ml-6">
+              <label htmlFor="currency-select" className="font-mono text-xs text-gray-400">Currency:</label>
+              <select
+                id="currency-select"
+                value={currency}
+                onChange={e => setCurrency(e.target.value)}
+                className="bg-black/70 border border-white/10 rounded px-2 py-1 text-xs text-white font-mono"
+              >
+                {CURRENCIES.map(c => (
+                  <option key={c.code} value={c.code}>{c.label} ({c.code})</option>
+                ))}
+              </select>
+            </div>
           </div>
         </div>
       </header>

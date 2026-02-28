@@ -13,11 +13,11 @@ export interface TechnicalAnalysis {
   summary: string;
 }
 
-export async function analyzeStockNvidia(ticker: string, position?: string): Promise<TechnicalAnalysis> {
+export async function analyzeStockNvidia(ticker: string, position?: string, currency: string = "USD"): Promise<TechnicalAnalysis> {
   const response = await fetch("/api/analyze-nvidia", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ ticker, position }),
+    body: JSON.stringify({ ticker, position, currency }),
   });
   if (!response.ok) {
     const error = await response.json();
