@@ -58,7 +58,19 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       max_tokens: 4096,
       stream: false,
     });
-    const text = completion.choices?.[0]?.message?.content || "";
+    let text = completion.choices?.[0]?.message?.content || "";
+    // Extract JSON from code block or extra text
+    const match = text.match(/```(?:json)?([\s\S]*?)```/i);
+    if (match) {
+      text = match[1];
+    }
+    // Fallback: try to find first { ... } block
+    if (!match) {
+      const curly = text.indexOf('{');
+      if (curly !== -1) {
+        text = text.slice(curly, text.lastIndexOf('}') + 1);
+      }
+    }
     const data = JSON.parse(text);
     res.status(200).json(data);
   } catch (error: any) {
