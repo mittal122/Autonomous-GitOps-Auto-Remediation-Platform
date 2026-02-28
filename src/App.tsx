@@ -27,7 +27,7 @@ import {
 } from "recharts";
 import { clsx, type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
-import { analyzeStock, type TechnicalAnalysis } from "./services/geminiService";
+import { analyzeStockNvidia, type TechnicalAnalysis } from "./services/nvidiaService";
 
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -59,7 +59,7 @@ export default function App() {
     setLoading(true);
     setError(null);
     try {
-      const result = await analyzeStock(ticker, position);
+      const result = await analyzeStockNvidia(ticker, position);
       setAnalysis(result);
     } catch (err: any) {
       setError(err.message || "An unexpected error occurred.");
