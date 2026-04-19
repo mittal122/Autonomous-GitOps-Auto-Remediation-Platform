@@ -14,7 +14,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     return res.status(400).json({ error: "Ticker is required" });
   }
   if (!apiKey) {
-    return res.status(400).json({ error: "NVIDIA API key is required. Add one in settings or set NVIDIA_API_KEY on the server." });
+    return res.status(400).json({ error: "NVIDIA API key is required. Add one using the API key field or set NVIDIA_API_KEY on the server." });
   }
 
   const prompt = `
