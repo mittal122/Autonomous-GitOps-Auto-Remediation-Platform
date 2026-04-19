@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 const CURRENCIES = [
   { code: "USD", symbol: "$", label: "US Dollar" },
   { code: "EUR", symbol: "€", label: "Euro" },
@@ -52,14 +52,140 @@ const generateSimulatedData = () => {
   return data;
 };
 
+const encryptedApiStorageKey = "citadel:nvidia-api-key:enc";
+const keyDbName = "citadel-secure-store";
+const keyStoreName = "crypto";
+const keyId = "nvidia-api-key";
+
+function openKeyDb(): Promise<IDBDatabase> {
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open(keyDbName, 1);
+    request.onupgradeneeded = () => {
+      if (!request.result.objectStoreNames.contains(keyStoreName)) {
+        request.result.createObjectStore(keyStoreName);
+      }
+    };
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+}
+
+function getKeyFromDb(db: IDBDatabase): Promise<CryptoKey | undefined> {
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(keyStoreName, "readonly");
+    const store = tx.objectStore(keyStoreName);
+    const request = store.get(keyId);
+    request.onsuccess = () => resolve(request.result as CryptoKey | undefined);
+    request.onerror = () => reject(request.error);
+  });
+}
+
+function putKeyInDb(db: IDBDatabase, key: CryptoKey): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(keyStoreName, "readwrite");
+    const store = tx.objectStore(keyStoreName);
+    const request = store.put(key, keyId);
+    request.onsuccess = () => resolve();
+    request.onerror = () => reject(request.error);
+  });
+}
+
+async function getOrCreateStorageKey(): Promise<CryptoKey> {
+  const db = await openKeyDb();
+  const existing = await getKeyFromDb(db);
+  if (existing) return existing;
+
+  const generated = await crypto.subtle.generateKey(
+    { name: "AES-GCM", length: 256 },
+    true,
+    ["encrypt", "decrypt"]
+  );
+  await putKeyInDb(db, generated);
+  return generated;
+}
+
+async function encryptApiKey(value: string): Promise<string> {
+  const key = await getOrCreateStorageKey();
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const encoded = new TextEncoder().encode(value);
+  const encrypted = await crypto.subtle.encrypt({ name: "AES-GCM", iv }, key, encoded);
+  return JSON.stringify({
+    iv: Array.from(iv),
+    data: Array.from(new Uint8Array(encrypted)),
+  });
+}
+
+async function decryptApiKey(payload: string): Promise<string> {
+  const parsed = JSON.parse(payload) as { iv: number[]; data: number[] };
+  const key = await getOrCreateStorageKey();
+  const decrypted = await crypto.subtle.decrypt(
+    { name: "AES-GCM", iv: new Uint8Array(parsed.iv) },
+    key,
+    new Uint8Array(parsed.data)
+  );
+  return new TextDecoder().decode(decrypted);
+}
+
 export default function App() {
   const [ticker, setTicker] = useState("");
   const [position, setPosition] = useState("");
   const [currency, setCurrency] = useState("USD");
+  const [apiKey, setApiKey] = useState("");
+  const [apiKeySaved, setApiKeySaved] = useState(false);
   const [loading, setLoading] = useState(false);
   const [analysis, setAnalysis] = useState<TechnicalAnalysis | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [chartData] = useState(generateSimulatedData());
+  const [savedApiKey, setSavedApiKey] = useState("");
+
+  useEffect(() => {
+    let mounted = true;
+    const loadStoredKey = async () => {
+      try {
+        const encrypted = localStorage.getItem(encryptedApiStorageKey);
+        if (!encrypted) return;
+        const decrypted = await decryptApiKey(encrypted);
+        if (!mounted) return;
+        setApiKey(decrypted);
+        setSavedApiKey(decrypted);
+        setApiKeySaved(true);
+      } catch {
+        localStorage.removeItem(encryptedApiStorageKey);
+        if (mounted) {
+          setError("Failed to decrypt your saved API key. This can happen after clearing browser data. Please enter it again.");
+        }
+      }
+    };
+    loadStoredKey();
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  const handleSaveApiKey = async () => {
+    const trimmed = apiKey.trim();
+    if (!trimmed) {
+      setError("Enter an API key before saving.");
+      return;
+    }
+    try {
+      const encrypted = await encryptApiKey(trimmed);
+      localStorage.setItem(encryptedApiStorageKey, encrypted);
+      setApiKey(trimmed);
+      setSavedApiKey(trimmed);
+      setApiKeySaved(true);
+    } catch (err) {
+      console.error("Failed to save encrypted API key", err);
+      setError("Unable to encrypt and save your API key. Ensure browser storage is enabled and use a secure (HTTPS) context.");
+    }
+  };
+
+  const handleClearApiKey = () => {
+    localStorage.removeItem(encryptedApiStorageKey);
+    setApiKey("");
+    setApiKeySaved(false);
+    setSavedApiKey("");
+  };
 
   const handleAnalyze = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -68,7 +194,7 @@ export default function App() {
     setLoading(true);
     setError(null);
     try {
-      const result = await analyzeStockNvidia(ticker, position, currency);
+      const result = await analyzeStockNvidia(ticker, position, currency, apiKey.trim() || undefined);
       setAnalysis(result);
     } catch (err: any) {
       setError(err.message || "An unexpected error occurred.");
@@ -148,6 +274,42 @@ export default function App() {
                   {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : <Cpu className="w-5 h-5" />}
                   {loading ? "Analyzing..." : "Execute"}
                 </button>
+              </div>
+              <div className="bg-white/5 border border-white/10 rounded-xl p-4 space-y-3">
+                <div className="flex items-center justify-between">
+                  <p className="text-xs font-mono uppercase tracking-widest text-gray-400">NVIDIA API Key</p>
+                  <span className={cn("text-[10px] font-mono uppercase tracking-widest", apiKeySaved ? "text-emerald-400" : "text-gray-500")}>
+                    {apiKeySaved ? "Saved in browser" : "Not saved"}
+                  </span>
+                </div>
+                <input
+                  type="password"
+                  placeholder="Enter your NVIDIA API key"
+                  className="w-full bg-black/40 border border-white/10 rounded-lg py-2.5 px-3 focus:outline-none focus:ring-2 focus:ring-white/20 transition-all font-mono text-xs"
+                  value={apiKey}
+                  onChange={(e) => {
+                    setApiKey(e.target.value);
+                    setApiKeySaved(false);
+                  }}
+                  autoComplete="off"
+                />
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={handleSaveApiKey}
+                    disabled={!apiKey.trim()}
+                    className="px-3 py-2 rounded-lg bg-white text-black text-xs font-bold uppercase tracking-wider hover:bg-gray-200 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    Save API Key
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleClearApiKey}
+                    className="px-3 py-2 rounded-lg border border-white/20 text-xs font-bold uppercase tracking-wider hover:bg-white/10 transition-colors"
+                  >
+                    Clear
+                  </button>
+                </div>
               </div>
             </form>
           </div>

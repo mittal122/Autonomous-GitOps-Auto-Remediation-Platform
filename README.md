@@ -16,6 +16,7 @@ The Citadel Market Analysis AI is a web application that provides institutional-
   - Executive summary
 - Clean, modern UI with simulated chart visuals.
 - Powered by NVIDIA's AI API (securely called from a backend route).
+- Users can enter their own NVIDIA API key in the UI and save it in browser storage for future sessions.
 
 ## How It Works
 1. User enters a ticker symbol and (optionally) a current position.
@@ -51,11 +52,12 @@ The Citadel Market Analysis AI is a web application that provides institutional-
    npm install
    ```
 3. **Set up environment variables:**
-   - Copy `.env.example` to `.env` and add your NVIDIA API key:
-     ```sh
-     cp .env.example .env
-     # Edit .env and set NVIDIA_API_KEY
-     ```
+    - Copy `.env.example` to `.env` and add your NVIDIA API key:
+      ```sh
+      cp .env.example .env
+      # Edit .env and set NVIDIA_API_KEY
+      ```
+   - Or skip this and use the in-app API key field (saved in your browser) to run analysis with your own key.
 4. **Run locally:**
    ```sh
    npm run dev
