@@ -2,19 +2,19 @@
 import { NextApiRequest, NextApiResponse } from "next";
 import OpenAI from "openai";
 
-const client = new OpenAI({
-  baseURL: "https://integrate.api.nvidia.com/v1",
-  apiKey: process.env.NVIDIA_API_KEY || "",
-});
-
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== "POST") {
     return res.status(405).json({ error: "Method not allowed" });
   }
 
   const { ticker, position, currency } = req.body;
+  const providedApiKey = typeof req.body?.apiKey === "string" ? req.body.apiKey.trim() : "";
+  const apiKey = providedApiKey || (process.env.NVIDIA_API_KEY || "").trim();
   if (!ticker) {
     return res.status(400).json({ error: "Ticker is required" });
+  }
+  if (!apiKey) {
+    return res.status(400).json({ error: "NVIDIA API key is required. Add one in settings or set NVIDIA_API_KEY on the server." });
   }
 
   const prompt = `
@@ -53,6 +53,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   `;
 
   try {
+    const client = new OpenAI({
+      baseURL: "https://integrate.api.nvidia.com/v1",
+      apiKey,
+    });
+
     const completion = await client.chat.completions.create({
       model: "openai/gpt-oss-120b",
       messages: [{ role: "user", content: prompt }],
