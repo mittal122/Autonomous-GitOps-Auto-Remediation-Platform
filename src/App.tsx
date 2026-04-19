@@ -97,7 +97,7 @@ async function getOrCreateStorageKey(): Promise<CryptoKey> {
 
   const generated = await crypto.subtle.generateKey(
     { name: "AES-GCM", length: 256 },
-    false,
+    true,
     ["encrypt", "decrypt"]
   );
   await putKeyInDb(db, generated);
@@ -151,6 +151,9 @@ export default function App() {
         setApiKeySaved(true);
       } catch {
         localStorage.removeItem(encryptedApiStorageKey);
+        if (mounted) {
+          setError("Failed to decrypt your saved API key. This can happen after clearing browser data. Please enter it again.");
+        }
       }
     };
     loadStoredKey();
@@ -162,9 +165,7 @@ export default function App() {
   const handleSaveApiKey = async () => {
     const trimmed = apiKey.trim();
     if (!trimmed) {
-      localStorage.removeItem(encryptedApiStorageKey);
-      setApiKeySaved(false);
-      setSavedApiKey("");
+      setError("Enter an API key before saving.");
       return;
     }
     try {
@@ -173,8 +174,9 @@ export default function App() {
       setApiKey(trimmed);
       setSavedApiKey(trimmed);
       setApiKeySaved(true);
-    } catch {
-      setError("Unable to save API key securely in this browser.");
+    } catch (err) {
+      console.error("Failed to save encrypted API key", err);
+      setError("Unable to encrypt and save your API key. Ensure browser storage is enabled and use a secure (HTTPS) context.");
     }
   };
 
@@ -286,9 +288,8 @@ export default function App() {
                   className="w-full bg-black/40 border border-white/10 rounded-lg py-2.5 px-3 focus:outline-none focus:ring-2 focus:ring-white/20 transition-all font-mono text-xs"
                   value={apiKey}
                   onChange={(e) => {
-                    const value = e.target.value;
-                    setApiKey(value);
-                    setApiKeySaved(value.trim() === savedApiKey.trim() && !!savedApiKey);
+                    setApiKey(e.target.value);
+                    setApiKeySaved(false);
                   }}
                   autoComplete="off"
                 />
@@ -296,7 +297,8 @@ export default function App() {
                   <button
                     type="button"
                     onClick={handleSaveApiKey}
-                    className="px-3 py-2 rounded-lg bg-white text-black text-xs font-bold uppercase tracking-wider hover:bg-gray-200 transition-colors"
+                    disabled={!apiKey.trim()}
+                    className="px-3 py-2 rounded-lg bg-white text-black text-xs font-bold uppercase tracking-wider hover:bg-gray-200 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     Save API Key
                   </button>

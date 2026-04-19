@@ -8,13 +8,13 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   }
 
   const { ticker, position, currency } = req.body;
-  const providedApiKey = typeof req.body?.apiKey === "string" ? req.body.apiKey.trim() : "";
-  const apiKey = providedApiKey || (process.env.NVIDIA_API_KEY || "").trim();
+  const userApiKey = typeof req.body?.apiKey === "string" ? req.body.apiKey.trim() : "";
+  const apiKey = userApiKey || (process.env.NVIDIA_API_KEY || "").trim();
   if (!ticker) {
     return res.status(400).json({ error: "Ticker is required" });
   }
   if (!apiKey) {
-    return res.status(400).json({ error: "NVIDIA API key is required. Add one using the API key field or set NVIDIA_API_KEY on the server." });
+    return res.status(400).json({ error: "NVIDIA API key is required. Please enter your API key and try again." });
   }
 
   const prompt = `
