@@ -1,73 +1,149 @@
-
 # The Citadel Market Analysis AI
 
-## Overview
-The Citadel Market Analysis AI is a web application that provides institutional-grade, AI-powered technical analysis for stocks and cryptocurrencies. It leverages NVIDIA's advanced language models to generate detailed, structured technical reports and trade plans for any given ticker symbol.
+AI-powered technical market analysis for stocks and crypto, with structured trade-plan output.
 
-## Features
-- Enter any stock or crypto ticker (e.g., NVDA, TSLA, BTC) to receive a comprehensive technical analysis.
-- AI-generated report includes:
-  - Trend analysis (daily, weekly, monthly)
-  - Support/resistance levels
-  - Moving averages, RSI, MACD, Bollinger Bands
-  - Volume and pattern analysis
-  - Fibonacci retracement
-  - Trade plan (entry, stop-loss, profit target, risk/reward, confidence)
-  - Executive summary
-- Clean, modern UI with simulated chart visuals.
-- Powered by NVIDIA's AI API (securely called from a backend route).
-- Users can enter their own NVIDIA API key in the UI and save it in browser storage for future sessions.
+## Project Overview
+The Citadel Market Analysis AI is a Vite + React application that lets users enter a ticker (for example `NVDA`, `TSLA`, `BTC`) and receive a structured AI-generated technical analysis report.
+
+The app sends user inputs to a backend API route, which calls NVIDIA-hosted LLM endpoints and returns a report card, trade-plan fields, and a short outlook summary.
+
+## Why This Project Was Made
+Retail traders and students often face three common issues:
+- Technical analysis is scattered across many tools.
+- It takes time to manually combine indicators into a clear trade plan.
+- Many tools provide noisy output instead of one practical, decision-ready summary.
+
+This project was built to provide a single workflow: input a ticker, run AI-assisted technical analysis, and get a clean, structured report with actionable levels.
+
+## Who This Project Helps
+- **Learners & students**: understand how common technical indicators can be translated into plain-English analysis.
+- **Retail traders**: get a fast, structured draft of trend, levels, and risk/reward to support decision-making.
+- **Market analysts**: speed up first-pass technical review before deeper manual validation.
+- **Developers**: use the codebase as a reference for building secure AI-backed analysis UIs with a backend proxy.
+
+## Problem It Solves
+### Problem statement
+Market participants need quick, structured technical context, but manual analysis across trend, momentum, volatility, and risk planning is time-consuming and inconsistent.
+
+### How this project addresses it
+The app standardizes the process by collecting minimal user input (ticker, optional position, preferred currency), generating a consistent analysis prompt, and returning machine-structured output (`reportCard`, `tradePlan`, `summary`) for immediate review.
+
+---
+
+## Project Flow Diagram
+```mermaid
+flowchart TD
+    A[User enters ticker, optional position, currency, optional API key] --> B[React UI validates input]
+    B --> C[POST /api/analyze-nvidia]
+    C --> D{API key source}
+    D -->|User-provided key| E[Use request API key]
+    D -->|Fallback| F[Use NVIDIA_API_KEY from environment]
+    E --> G[Build analysis prompt]
+    F --> G
+    G --> H[Call NVIDIA OpenAI-compatible API]
+    H --> I[Parse AI response JSON]
+    I --> J[Return structured analysis]
+    J --> K[Render report card + trade plan + summary in UI]
+```
+
+## Feature Diagram
+```mermaid
+mindmap
+  root((The Citadel Market Analysis AI))
+    Input Experience
+      Ticker search input
+      Optional current position
+      Currency selection
+      Optional user API key
+    AI Analysis Output
+      Trend by timeframe
+      Support and resistance levels
+      Indicators (RSI, MACD, Bollinger, moving averages)
+      Pattern and volume interpretation
+      Fibonacci context
+      Trade plan (entry, stop-loss, target, risk/reward)
+      One-line summary
+    Security and API Handling
+      Backend API proxy route
+      Environment key fallback
+      Browser-side encrypted key storage
+    UI and Presentation
+      Markdown report rendering
+      Terminal-style dashboard theme
+      Chart visualization backdrop
+```
+
+---
+
+## Key Features
+- AI-generated technical analysis for stocks and cryptocurrencies.
+- Structured output with report card, trade-plan fields, and summary.
+- Currency-aware prompting for price-level formatting.
+- Secure backend API proxy for NVIDIA API calls.
+- Optional in-browser API key save flow with encryption helpers.
 
 ## How It Works
-1. User enters a ticker symbol and (optionally) a current position.
-2. The frontend sends this data to a secure backend API route.
-3. The backend calls NVIDIA's AI API with a detailed prompt.
-4. The AI returns a structured JSON report, which is displayed in the UI.
+1. User submits ticker details from the React frontend.
+2. Frontend calls `POST /api/analyze-nvidia`.
+3. Backend builds a detailed technical-analysis prompt.
+4. Backend calls NVIDIA-hosted OpenAI-compatible chat completions.
+5. Response is parsed into JSON and returned.
+6. UI displays markdown report + structured trade plan.
 
-## Example Usage
-### Example 1
-**Input:**
-- Ticker: `AAPL`
-- Position: *(left blank)*
+## Installation & Setup
+### Prerequisites
+- Node.js (modern LTS recommended)
+- npm
 
-**Output:**
-- Full technical analysis report for Apple Inc., including trend, support/resistance, indicators, trade plan, and summary.
+### Steps
+```bash
+git clone https://github.com/mittal122/The-Citadel-Market-analysis-ai.git
+cd The-Citadel-Market-analysis-ai
+npm ci
+```
 
-### Example 2
-**Input:**
-- Ticker: `BTC`
-- Position: `Long from 42000`
+Create environment file:
+```bash
+cp .env.example .env
+```
+Then set:
+- `NVIDIA_API_KEY=...` (recommended default key for backend route)
 
-**Output:**
-- Technical analysis for Bitcoin, tailored to a long position from $42,000, with updated trade plan and risk/reward.
+Run locally:
+```bash
+npm run dev
+```
 
-## Getting Started
-1. **Clone the repository:**
-   ```sh
-   git clone https://github.com/your-username/The-Citadel-Market-analysis-ai.git
-   cd The-Citadel-Market-analysis-ai
-   ```
-2. **Install dependencies:**
-   ```sh
-   npm install
-   ```
-3. **Set up environment variables:**
-    - Copy `.env.example` to `.env` and add your NVIDIA API key:
-      ```sh
-      cp .env.example .env
-      # Edit .env and set NVIDIA_API_KEY
-      ```
-   - Or skip this and use the in-app API key field (saved in your browser) to run analysis with your own key.
-4. **Run locally:**
-   ```sh
-   npm run dev
-   ```
-5. **Deploy:**
-   - Deploy to Vercel or your preferred platform.
-   - Set `NVIDIA_API_KEY` in your deployment environment variables.
+Build for production:
+```bash
+npm run build
+```
 
-## Security Note
-Your NVIDIA API key is never exposed to the frontend. All AI requests are proxied through a secure backend route.
+## Usage
+1. Open the app in your browser.
+2. Enter a ticker symbol.
+3. Optionally enter current position and choose currency.
+4. Optionally provide your own NVIDIA API key in the app.
+5. Click analyze and review the generated report and trade plan.
+
+> Note: Output is AI-generated technical commentary, not financial advice.
+
+## Tech Stack
+- **Frontend:** React 19, TypeScript, Vite, Tailwind CSS, Recharts, Lucide icons
+- **Backend/API:** Serverless-style API route (`api/analyze-nvidia.ts`)
+- **AI Provider:** NVIDIA OpenAI-compatible API via `openai` SDK
+- **Tooling:** TypeScript compiler (`npm run lint`), Vite build pipeline
+
+## Future Improvements
+- Add historical market data integration for indicator grounding.
+- Add watchlists and saved analysis history.
+- Add stronger response validation and error handling for malformed AI output.
+- Add automated tests for API and UI flows.
+
+## Contributing
+Contributions are welcome. Please open an issue describing your proposed change before submitting a pull request.
 
 ## License
-MIT
+No standalone `LICENSE` file is currently present in this repository.
+
+If you intend this project to be open source under MIT (as previous README text suggested), add a `LICENSE` file to formalize terms.
