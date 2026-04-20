@@ -101,6 +101,7 @@ git clone https://github.com/mittal122/The-Citadel-Market-analysis-ai.git
 cd The-Citadel-Market-analysis-ai
 npm ci
 ```
+If you are cloning your own fork, replace `mittal122` with your GitHub username.
 
 Create environment file:
 ```bash
@@ -146,4 +147,4 @@ Contributions are welcome. Please open an issue describing your proposed change 
 ## License
 No standalone `LICENSE` file is currently present in this repository.
 
-If you intend this project to be open source under MIT (as previous README text suggested), add a `LICENSE` file to formalize terms.
+Until a `LICENSE` file is added, treat this repository as **all rights reserved** by default.
