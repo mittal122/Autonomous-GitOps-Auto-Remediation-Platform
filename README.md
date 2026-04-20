@@ -97,11 +97,15 @@ mindmap
 
 ### Steps
 ```bash
+# Canonical repository
 git clone https://github.com/mittal122/The-Citadel-Market-analysis-ai.git
 cd The-Citadel-Market-analysis-ai
 npm ci
 ```
-If you are cloning your own fork, replace `mittal122` with your fork owner.
+If you are cloning your own fork, use:
+```bash
+git clone https://github.com/<your-username>/The-Citadel-Market-analysis-ai.git
+```
 `npm ci` is used here because this repository includes a committed `package-lock.json` for reproducible installs.
 
 Create environment file:
@@ -146,6 +150,5 @@ npm run build
 Contributions are welcome. Please open an issue describing your proposed change before submitting a pull request.
 
 ## License
-**License status: TBD.**  
-No standalone `LICENSE` file is currently committed in this repository.  
-Maintainers should add a license file (for example MIT) to define usage terms clearly.
+The project documentation indicates **MIT** licensing intent, but no standalone `LICENSE` file is currently committed in this repository.  
+Maintainers should add an MIT `LICENSE` file to formalize terms.
