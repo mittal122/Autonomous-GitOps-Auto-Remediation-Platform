@@ -150,5 +150,4 @@ npm run build
 Contributions are welcome. Please open an issue describing your proposed change before submitting a pull request.
 
 ## License Status
-Current status: **no `LICENSE` file is committed yet** (so the repository is currently unlicensed in practice).  
-Project docs indicate intended **MIT** licensing; maintainers should add a formal MIT `LICENSE` file to finalize terms.
+Current status: **no `LICENSE` file is committed yet**, so treat this repository as **currently unlicensed** until maintainers add one.
