@@ -107,6 +107,7 @@ If you are cloning your own fork, use:
 git clone https://github.com/<your-username>/The-Citadel-Market-analysis-ai.git
 ```
 `npm ci` is used here because this repository includes a committed `package-lock.json` for reproducible installs.
+If you remove the lockfile in your own fork, use `npm install` instead.
 
 Create environment file:
 ```bash
@@ -150,5 +151,5 @@ npm run build
 Contributions are welcome. Please open an issue describing your proposed change before submitting a pull request.
 
 ## License
-The project documentation indicates **MIT** licensing intent, but no standalone `LICENSE` file is currently committed in this repository.  
-Maintainers should add an MIT `LICENSE` file to formalize terms.
+This project is intended to be licensed under **MIT**.  
+A formal `LICENSE` file should be added in a future update to finalize terms in-repo.
