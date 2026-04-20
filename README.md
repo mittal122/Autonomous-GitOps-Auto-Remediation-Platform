@@ -107,7 +107,6 @@ If you are cloning your own fork, use:
 git clone https://github.com/<your-username>/The-Citadel-Market-analysis-ai.git
 ```
 `npm ci` is used here because this repository includes a committed `package-lock.json` for reproducible installs.
-If a lockfile is not present in your local copy, run `npm install` once to generate dependencies and a new lockfile.
 
 Create environment file:
 ```bash
