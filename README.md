@@ -97,11 +97,11 @@ mindmap
 
 ### Steps
 ```bash
-git clone https://github.com/mittal122/The-Citadel-Market-analysis-ai.git
+git clone https://github.com/YOUR-USERNAME/The-Citadel-Market-analysis-ai.git
 cd The-Citadel-Market-analysis-ai
 npm ci
 ```
-If you are cloning your own fork, replace `mittal122` with your GitHub username.
+Replace `YOUR-USERNAME` with the repository owner (or your fork owner).
 
 Create environment file:
 ```bash
@@ -145,6 +145,6 @@ npm run build
 Contributions are welcome. Please open an issue describing your proposed change before submitting a pull request.
 
 ## License
-No standalone `LICENSE` file is currently present in this repository.
+This repository currently has **no standalone `LICENSE` file** committed.
 
-Until a `LICENSE` file is added, treat this repository as **all rights reserved** by default.
+The previous README text mentioned MIT, but without a committed license file the legal terms are not formally defined here. Until maintainers add a license file, treat usage rights as **all rights reserved by default**.
