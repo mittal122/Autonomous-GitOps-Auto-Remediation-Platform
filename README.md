@@ -92,7 +92,7 @@ mindmap
 
 ## Installation & Setup
 ### Prerequisites
-- Node.js (modern LTS recommended)
+- Node.js 18.x or later
 - npm
 
 ### Steps
@@ -102,6 +102,7 @@ cd The-Citadel-Market-analysis-ai
 npm ci
 ```
 If you are cloning your own fork, replace `mittal122` with your fork owner.
+`npm ci` is used here because this repository includes a committed `package-lock.json` for reproducible installs.
 
 Create environment file:
 ```bash
