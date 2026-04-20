@@ -97,7 +97,7 @@ Use this checklist before publishing a README:
 To avoid generic README content:
 
 1. Use concrete names (actual users, systems, modules).
-2. Use numbers or scope when available (for example: symbols analyzed, report sections generated).
+2. Use numbers or scope when available (e.g., symbols analyzed, report sections generated).
 3. Keep every sentence tied to current repository behavior.
 4. Remove sections that do not apply, but keep the five required sections.
 5. Re-check both Mermaid diagrams so node labels match real project terms.
