@@ -69,5 +69,10 @@ The Citadel Market Analysis AI is a web application that provides institutional-
 ## Security Note
 Your NVIDIA API key is never exposed to the frontend. All AI requests are proxied through a secure backend route.
 
+## Reusable README Standard (for all `mittal122` repositories)
+This repository now includes a reusable README authoring standard:
+- See: [`docs/README_STANDARD.md`](docs/README_STANDARD.md)
+- Includes: required section order, writing checklist, and Mermaid templates for project flow and feature diagrams.
+
 ## License
 MIT
