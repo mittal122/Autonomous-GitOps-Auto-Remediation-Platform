@@ -150,8 +150,9 @@ npm run build
 Contributions are welcome. Please open an issue describing your proposed change before submitting a pull request.
 
 ## Reusable README Standard (for all `mittal122` repositories)
-This repository also includes a reusable README authoring standard:
+This repository includes a reusable README authoring standard:
 - See: [`docs/README_STANDARD.md`](docs/README_STANDARD.md)
+- Includes: required section order, writing checklist, and Mermaid templates for project flow and feature diagrams.
 
 ## License Status
 Current status: **no `LICENSE` file is committed yet**, so treat this repository as **currently unlicensed** until maintainers add one.
