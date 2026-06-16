@@ -73,7 +73,11 @@ func main() {
 
 	// Detection subsystems.
 	ing := ingestor.New(k8sClient, log)
-	cor := correlator.New(cfg.Correlator, log)
+	cor := correlator.New(correlator.Config{
+		CorrelationWindow: cfg.Correlator.CorrelationWindow,
+		ResolveWindow:     cfg.Correlator.ResolveWindow,
+		DedupWindow:       cfg.Correlator.DedupWindow,
+	}, log)
 
 	// HTTP server: webhook receiver + incident inspector + health check.
 	mux := http.NewServeMux()

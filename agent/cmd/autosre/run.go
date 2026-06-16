@@ -77,7 +77,11 @@ func runRun(args []string, cfg config.Config, log *slog.Logger) int {
 
 	notif := notifier.New(cfg.Notifier, log)
 
-	cor := correlator.New(cfg.Correlator, log)
+	cor := correlator.New(correlator.Config{
+		CorrelationWindow: cfg.Correlator.CorrelationWindow,
+		ResolveWindow:     cfg.Correlator.ResolveWindow,
+		DedupWindow:       cfg.Correlator.DedupWindow,
+	}, log)
 
 	ver := verifier.New(cfg.Verifier, verifier.NewCorrelatorSource(cor), log)
 

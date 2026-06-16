@@ -256,9 +256,8 @@ func (e *Engine) checkActionAllowList(
 	}
 	for _, allowed := range fmRule.AllowedActions {
 		if allowed == proposal.Params.ActionType {
-			rules = append(*rules, fmt.Sprintf("action-allowed[%s→%s]",
+			*rules = append(*rules, fmt.Sprintf("action-allowed[%s→%s]",
 				proposal.FailureMode, proposal.Params.ActionType))
-			*rules = rules
 			return
 		}
 	}

@@ -70,3 +70,15 @@ yarn.lock
 
 # Binaries
 agent/autosre
+
+# Runtime / generated
+.run/
+logs/
+data/
+.env
+diagnoser/.venv/
+learner/.venv/
+web-ui/node_modules/
+web-ui/dist/
+agent/autosre
+agent/autosre.exe
