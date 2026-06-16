@@ -58,6 +58,25 @@ failureModeRules:
     autonomy: observe
     allowedActions: []
 
+  NodeNotReady:
+    # Scale workloads to compensate for a lost node while on-call investigates.
+    autonomy: propose
+    allowedActions:
+      - scale-deployment
+
+  HPAOscillation:
+    # Raise minReplicas to stabilize the HPA floor and stop rapid flapping.
+    autonomy: auto-with-approval
+    allowedActions:
+      - patch-hpa
+
+  DNSSaturation:
+    # Scale CoreDNS to relieve query pressure.
+    # kube-system namespace protection (below) downgrades AUTO to REQUIRE_APPROVAL.
+    autonomy: auto-with-approval
+    allowedActions:
+      - scale-deployment
+
 # =============================================================================
 # Per-namespace autonomy overrides
 # Most-restrictive-wins: if the namespace rule is stricter than the failure-mode

@@ -94,8 +94,15 @@ func newAuthMiddleware(_ context.Context, cfg config.APIConfig, log *slog.Logger
 func (a *authMiddleware) enforce(next http.Handler, minRole Role) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !a.enabled {
-			// Dev mode: grant viewer to everyone.
+			// Dev mode: grant viewer to everyone, but still enforce the endpoint's minRole.
+			// Kill switch and other admin endpoints must remain protected even without OIDC.
 			ctx := context.WithValue(r.Context(), ctxRoleKey, RoleViewer)
+			if roleLevel(RoleViewer) < roleLevel(minRole) {
+				jsonError(w,
+					fmt.Sprintf("insufficient permissions: %s required, got viewer (dev mode — enable OIDC to authenticate as %s)", minRole, minRole),
+					http.StatusForbidden)
+				return
+			}
 			next.ServeHTTP(w, r.WithContext(ctx))
 			return
 		}

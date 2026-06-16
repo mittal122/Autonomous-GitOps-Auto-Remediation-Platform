@@ -58,8 +58,8 @@ type fakeVerifier struct{}
 func (f *fakeVerifier) Verify(_ context.Context, _ contracts.Incident, _ string) contracts.VerificationResult {
 	return contracts.VerificationResult{
 		Outcome:     contracts.VerificationRecovered,
-		ObservedAt:  time.Now(),
-		Description: "chaos: no signals observed",
+		WindowStart: time.Now(),
+		Reason:      "chaos: no signals observed",
 	}
 }
 

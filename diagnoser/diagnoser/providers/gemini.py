@@ -23,7 +23,7 @@ logger = logging.getLogger(__name__)
 
 # The complete list of action strings the policy engine understands.
 ALLOWED_ACTIONS: frozenset[str] = frozenset(
-    ["rollback-deployment", "scale-deployment", "bump-memory-limit"]
+    ["rollback-deployment", "scale-deployment", "bump-memory-limit", "patch-hpa"]
 )
 
 _SYSTEM_INSTRUCTION = """\
@@ -41,8 +41,8 @@ OUTPUT FORMAT — respond with only a valid JSON object and nothing else:
 {
   "incident_id": "<string>",
   "root_cause": "<human-readable root cause, 1-2 sentences>",
-  "failure_mode": "<e.g. OOMKilled | CrashLoopBackOff | BadDeploy | ImagePullBackOff>",
-  "proposed_action": "<MUST be exactly one of: rollback-deployment | scale-deployment | bump-memory-limit>",
+  "failure_mode": "<e.g. OOMKilled | CrashLoopBackOff | BadDeploy | ImagePullBackOff | HPAOscillation | DNSSaturation | NodeNotReady>",
+  "proposed_action": "<MUST be exactly one of: rollback-deployment | scale-deployment | bump-memory-limit | patch-hpa>",
   "confidence": <float 0.0–1.0>,
   "blast_radius": "<one of: pod | deployment | namespace | cluster>",
   "source": "gemini"

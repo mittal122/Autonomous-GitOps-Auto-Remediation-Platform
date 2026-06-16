@@ -20,15 +20,22 @@ _RULE_MAP: dict[str, tuple[str, float]] = {
     "OOMKilling": ("bump-memory-limit", 0.85),
     "CrashLoopBackOff": ("rollback-deployment", 0.75),
     "ImagePullBackOff": ("rollback-deployment", 0.90),
+    "ErrImagePull": ("rollback-deployment", 0.88),
     "BadDeploy": ("rollback-deployment", 0.80),
     "FailedScheduling": ("scale-deployment", 0.60),
-    "NodeNotReady": ("scale-deployment", 0.55),
+    "NodeNotReady": ("scale-deployment", 0.65),
+    # HPA oscillation: raise minReplicas to stabilize the replica floor.
+    "HPAOscillation": ("patch-hpa", 0.78),
+    # DNS saturation: scale the coredns deployment (resource = "coredns", ns = "kube-system").
+    # kube-system is a protected namespace so verdict is REQUIRE_APPROVAL, not AUTO.
+    "DNSSaturation": ("scale-deployment", 0.72),
 }
 
 _DEFAULT_BLAST_RADIUS: dict[str, str] = {
     "bump-memory-limit": "pod",
     "rollback-deployment": "deployment",
     "scale-deployment": "deployment",
+    "patch-hpa": "deployment",
 }
 
 

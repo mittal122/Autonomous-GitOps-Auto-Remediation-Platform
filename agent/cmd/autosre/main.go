@@ -71,8 +71,8 @@ func main() {
 	}
 	log.Info("Kubernetes client ready")
 
-	// Detection subsystems.
-	ing := ingestor.New(k8sClient, log)
+	// Detection subsystems (main.go doesn't configure Loki — use runRun for the full pipeline).
+	ing := ingestor.New(k8sClient, ingestor.LokiConfig{}, log)
 	cor := correlator.New(correlator.Config{
 		CorrelationWindow: cfg.Correlator.CorrelationWindow,
 		ResolveWindow:     cfg.Correlator.ResolveWindow,

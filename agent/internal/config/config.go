@@ -125,6 +125,19 @@ type AuditConfig struct {
 	FilePath string // env: AUDIT_FILE_PATH
 }
 
+// LokiConfig controls the Loki log polling signal source.
+type LokiConfig struct {
+	// Addr is the base URL of the Loki instance (e.g. "http://localhost:3100").
+	// Empty string disables Loki ingestion.
+	Addr string // env: LOKI_ADDR
+	// PollInterval is how often to query Loki for new error logs. Default: 30s.
+	PollInterval time.Duration // env: LOKI_POLL_INTERVAL
+	// Timeout is the per-request HTTP timeout. Default: 10s.
+	Timeout time.Duration // env: LOKI_TIMEOUT
+	// Query is the LogQL stream selector. Default: {namespace=~".+"}
+	Query string // env: LOKI_QUERY
+}
+
 // LearnerConfig controls how the Go agent reaches the Python learner service.
 type LearnerConfig struct {
 	// Addr is the base URL of the learner (e.g. "http://localhost:8002").
@@ -163,6 +176,9 @@ type Config struct {
 
 	// Audit log
 	Audit AuditConfig
+
+	// Loki log polling source
+	Loki LokiConfig
 
 	// Learner outcome client
 	Learner LearnerConfig
@@ -226,6 +242,12 @@ func Load() Config {
 		Audit: AuditConfig{
 			Enabled:  getEnv("AUDIT_ENABLED", "true") != "false",
 			FilePath: getEnv("AUDIT_FILE_PATH", "./data/audit.jsonl"),
+		},
+		Loki: LokiConfig{
+			Addr:         getEnv("LOKI_ADDR", ""),
+			PollInterval: getDuration("LOKI_POLL_INTERVAL", 30*time.Second),
+			Timeout:      getDuration("LOKI_TIMEOUT", 10*time.Second),
+			Query:        getEnv("LOKI_QUERY", `{namespace=~".+"}`),
 		},
 		Learner: LearnerConfig{
 			Addr:    getEnv("LEARNER_ADDR", ""),

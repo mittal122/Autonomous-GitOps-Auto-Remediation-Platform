@@ -2,11 +2,10 @@
 // and streams them for downstream correlation. It is strictly read-only: it
 // never writes to or modifies any Kubernetes resource.
 //
-// Two signal sources are active in this prompt:
+// Active signal sources:
 //   - Kubernetes event/pod/node watcher (via client-go informers)
 //   - Alertmanager webhook receiver (POST /webhook/alertmanager)
-//
-// TODO (future prompt): add Loki log-tail source.
+//   - Loki log polling (GET /loki/api/v1/query_range) — enabled when LokiConfig.Addr is set
 package ingestor
 
 import (
@@ -19,32 +18,40 @@ import (
 	"github.com/autosre/agent/internal/contracts"
 )
 
-const signalBufSize = 256
+const signalBufSize = 512
 
 // Ingestor aggregates all signal sources and streams normalized contracts.Signal
 // values on a single read-only channel.
 type Ingestor struct {
 	signals chan contracts.Signal
 	watcher *k8sWatcher
+	loki    *lokiSource // nil when LokiConfig.Addr is empty
 	log     *slog.Logger
 }
 
 // New creates an Ingestor wired to the given Kubernetes client.
-func New(client kubernetes.Interface, log *slog.Logger) *Ingestor {
+// Pass a non-empty LokiConfig.Addr to enable Loki log polling.
+func New(client kubernetes.Interface, lokiCfg LokiConfig, log *slog.Logger) *Ingestor {
 	ch := make(chan contracts.Signal, signalBufSize)
-	return &Ingestor{
+	ing := &Ingestor{
 		signals: ch,
 		watcher: newK8sWatcher(client, log),
 		log:     log,
 	}
+	if lokiCfg.Addr != "" {
+		ing.loki = newLokiSource(lokiCfg, log)
+	}
+	return ing
 }
 
-// Start launches the Kubernetes watcher in a background goroutine.
-// It returns immediately; the caller must consume Signals() to prevent
-// the buffer from filling.
-// Start is idempotent: calling it more than once is safe but wasteful.
+// Start launches the Kubernetes watcher and (if configured) Loki poller as
+// background goroutines. Returns immediately; the caller must consume
+// Signals() to prevent the buffer from filling.
 func (i *Ingestor) Start(ctx context.Context) {
 	go i.watcher.Start(ctx, i.signals)
+	if i.loki != nil {
+		go i.loki.Start(ctx, i.signals)
+	}
 }
 
 // Signals returns the read-only channel of normalized signal events.

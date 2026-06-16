@@ -172,18 +172,20 @@ func TestListApprovals_Empty(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestApprove_UnknownID(t *testing.T) {
-	srv := newTestServer(t, &fakeIncidentLister{}, &fakeControlPlane{}, &audit.MemorySink{}, false)
+	// Use OIDC-enabled server + operator token so we reach the 404 path (not 403).
+	srv := newTestServer(t, &fakeIncidentLister{}, &fakeControlPlane{}, &audit.MemorySink{}, true)
 	body, _ := json.Marshal(map[string]string{"reason": "test"})
-	rr := doRequest(t, srv.Handler(""), http.MethodPost, "/api/v1/approvals/unknown/approve", body, "")
+	rr := doRequest(t, srv.Handler(""), http.MethodPost, "/api/v1/approvals/unknown/approve", body, makeBearer([]string{"operator"}))
 	if rr.Code != http.StatusNotFound {
 		t.Fatalf("want 404, got %d: %s", rr.Code, rr.Body)
 	}
 }
 
 func TestReject_UnknownID(t *testing.T) {
-	srv := newTestServer(t, &fakeIncidentLister{}, &fakeControlPlane{}, &audit.MemorySink{}, false)
+	// Use OIDC-enabled server + operator token so we reach the 404 path (not 403).
+	srv := newTestServer(t, &fakeIncidentLister{}, &fakeControlPlane{}, &audit.MemorySink{}, true)
 	body, _ := json.Marshal(map[string]string{"reason": "test"})
-	rr := doRequest(t, srv.Handler(""), http.MethodPost, "/api/v1/approvals/unknown/reject", body, "")
+	rr := doRequest(t, srv.Handler(""), http.MethodPost, "/api/v1/approvals/unknown/reject", body, makeBearer([]string{"operator"}))
 	if rr.Code != http.StatusNotFound {
 		t.Fatalf("want 404, got %d: %s", rr.Code, rr.Body)
 	}

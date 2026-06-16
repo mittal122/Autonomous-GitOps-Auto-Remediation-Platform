@@ -85,6 +85,18 @@ func (b *defaultActionBuilder) Build(
 		}
 		return remediator.NewScaleDeployment(b.writer, ns, res, target, dryRun, b.log), nil
 
+	case "patch-hpa":
+		minReplicas := proposal.Params.TargetReplicas
+		if minReplicas <= 0 {
+			minReplicas = b.defaultScale
+		}
+		// HPA name conventionally matches the deployment name; Container param overrides.
+		hpaName := res
+		if proposal.Params.Container != "" {
+			hpaName = proposal.Params.Container
+		}
+		return remediator.NewPatchHPA(b.writer, ns, hpaName, minReplicas, dryRun, b.log), nil
+
 	default:
 		return nil, fmt.Errorf("builder: unknown action type %q for failure mode %q",
 			diag.ProposedAction, diag.FailureMode)

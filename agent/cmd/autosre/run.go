@@ -127,7 +127,13 @@ func runRun(args []string, cfg config.Config, log *slog.Logger) int {
 
 	var ing *ingestor.Ingestor
 	if k8sClient != nil {
-		ing = ingestor.New(k8sClient, log)
+		lokiCfg := ingestor.LokiConfig{
+			Addr:         cfg.Loki.Addr,
+			PollInterval: cfg.Loki.PollInterval,
+			Timeout:      cfg.Loki.Timeout,
+			Query:        cfg.Loki.Query,
+		}
+		ing = ingestor.New(k8sClient, lokiCfg, log)
 		ing.Start(ctx)
 	}
 
