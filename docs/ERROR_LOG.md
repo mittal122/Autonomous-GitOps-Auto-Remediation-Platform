@@ -7,6 +7,8 @@
 | 2026-06-16 (P5) | Test signals pre-populated before `Verify()` window opened had `ReceivedAt` before `windowStart` so `RecentSignalsFor` filtered them out — FAILED tests would have incorrectly produced RECOVERED | `RecentSignalsFor` filters by `since=windowStart`; signals stamped at test-setup time are before that | Added `futureSig()` helper (`ReceivedAt = now+1h`) so pre-populated signals are always visible inside the window; RECOVERED tests use `sig()` (current time, filtered out) | `agent/internal/verifier/verifier_test.go` | Resolved |
 | 2026-06-16 (P6) | Test called `result.EscalationNeeded()` as a method — `ApprovalResult` struct has no such method | `ApprovalResult` is a plain struct; `EscalationNeeded` is only a field on `VerificationResult`, not on `ApprovalResult` | Removed the invalid method call; replaced with direct comparison `result.Decision == contracts.ApprovalApproved` to verify the fail-closed invariant | `agent/internal/notifier/notifier_test.go` | Resolved |
 
+| 2026-06-16 (P9) | `run.go` had a duplicate `log.Info("HTTP server starting", ...)` after adding API server mount | Edit added new log call right before existing one | Removed the new log call; updated the existing log statement to include `oidc_enabled` and `apply_enabled` fields and the new API endpoint names | `agent/cmd/autosre/run.go` | Resolved |
+
 ---
 
 > **Instructions:** Add one row per error encountered during any prompt.

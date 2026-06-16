@@ -97,7 +97,7 @@ func (s *SlackNotifier) RequestApproval(ctx context.Context, proposal contracts.
 	}
 
 	reqID := uid.New()
-	ch := s.reg.register(reqID, s.cfg.ApprovalTimeout)
+	ch := s.reg.register(reqID, proposal, s.cfg.ApprovalTimeout)
 	defer s.reg.remove(reqID)
 
 	payload := s.buildApprovalMessage(reqID, proposal)

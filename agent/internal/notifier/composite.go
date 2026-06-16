@@ -69,8 +69,19 @@ func (c *CompositeNotifier) Escalate(ctx context.Context, incident contracts.Inc
 // Register on the main HTTP mux:
 //
 //	mux.Handle("POST /slack/interactions", composite.InteractionsHandler())
-//
-// TODO (future prompt — orchestrator): register in cmd/autosre/main.go.
 func (c *CompositeNotifier) InteractionsHandler() http.Handler {
 	return c.slack.InteractionsHandler()
+}
+
+// ListPendingApprovals returns all currently pending, non-expired approval requests.
+// Used by the Web UI to display pending items for operator action.
+func (c *CompositeNotifier) ListPendingApprovals() []PendingApproval {
+	return c.slack.reg.list()
+}
+
+// ResolveApproval resolves a pending approval from the Web UI.
+// Routes through the existing fail-closed approval registry — same path as Slack interactive.
+// Every resolution must be audited by the caller.
+func (c *CompositeNotifier) ResolveApproval(id string, result contracts.ApprovalResult) bool {
+	return c.slack.reg.resolve(id, result)
 }

@@ -36,6 +36,18 @@ func New(cfg PolicyConfig, log *slog.Logger) *Engine {
 	}
 }
 
+// CircuitBreakerTripped reports whether the circuit breaker has fired.
+func (e *Engine) CircuitBreakerTripped() bool { return e.cb.tripped() }
+
+// CircuitBreakerCount returns the number of AUTO decisions recorded in the current window.
+func (e *Engine) CircuitBreakerCount() int { return e.cb.count() }
+
+// CircuitBreakerMax returns the limit before the circuit breaker trips.
+func (e *Engine) CircuitBreakerMax() int { return e.cfg.CircuitBreaker.MaxActionsPerWindow }
+
+// CircuitBreakerWindowSeconds returns the rolling window size in seconds.
+func (e *Engine) CircuitBreakerWindowSeconds() int { return e.cfg.CircuitBreaker.WindowSeconds }
+
 // Evaluate applies all policy gates to a proposal and returns a Decision.
 // Gates are evaluated in order; each gate can only downgrade the verdict,
 // never upgrade it. Every gate that changes the verdict appends to MatchedRules.

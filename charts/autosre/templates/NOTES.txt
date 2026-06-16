@@ -1,0 +1,20 @@
+AutoSRE has been deployed!
+
+Agent (Web API + webhook):
+  kubectl port-forward svc/{{ include "autosre.fullname" . }}-agent 8080:{{ .Values.agent.service.port }} -n {{ .Release.Namespace }}
+  Then open: http://localhost:8080
+
+Apply is: {{ if .Values.agent.applyEnabled }}ENABLED — real GitOps commits will be made{{ else }}DISABLED (dry-run-only). Set agent.applyEnabled=true to enable.{{ end }}
+Kill switch: {{ if .Values.agent.killSwitch }}ENGAGED — all remediation halted{{ else }}inactive{{ end }}
+OIDC auth: {{ if .Values.agent.oidc.enabled }}enabled (issuer: {{ .Values.agent.oidc.issuerURL }}){{ else }}disabled (dev mode — all requests get viewer access){{ end }}
+
+API endpoints:
+  GET  /api/v1/status             — system status
+  GET  /api/v1/incidents          — all incidents
+  GET  /api/v1/incidents/{id}/trace — audit reasoning trace
+  GET  /api/v1/approvals/pending  — pending approvals
+  POST /api/v1/approvals/{id}/approve — approve (operator+)
+  POST /api/v1/approvals/{id}/reject  — reject  (operator+)
+  POST /api/v1/control/kill-switch    — toggle kill switch (admin only, audited)
+
+For full operator documentation, see: docs/OPERATOR_RUNBOOK.md

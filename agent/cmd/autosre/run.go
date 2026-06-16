@@ -12,6 +12,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/autosre/agent/internal/api"
 	"github.com/autosre/agent/internal/audit"
 	"github.com/autosre/agent/internal/config"
 	"github.com/autosre/agent/internal/contracts"
@@ -143,6 +144,10 @@ func runRun(args []string, cfg config.Config, log *slog.Logger) int {
 	mux.HandleFunc("GET /health", healthHandler)
 	mux.Handle("POST /slack/interactions", notif.InteractionsHandler())
 
+	// Web API + UI (catch-all; specific routes above take precedence).
+	apiSrv := api.NewServer(ctx, cfg.API, cor, orch, auditSink, notif, pol, cfg.Learner.Addr, log)
+	mux.Handle("/", apiSrv.Handler(cfg.API.WebUIDir))
+
 	srv := &http.Server{
 		Addr:         cfg.WebhookAddr,
 		Handler:      mux,
@@ -168,11 +173,17 @@ func runRun(args []string, cfg config.Config, log *slog.Logger) int {
 		defer wg.Done()
 		log.Info("HTTP server starting",
 			"addr", cfg.WebhookAddr,
+			"oidc_enabled", cfg.API.OIDCEnabled,
+			"apply_enabled", cfg.Orchestrator.ApplyEnabled,
 			"endpoints", []string{
 				"POST /webhook/alertmanager",
 				"GET  /incidents",
 				"GET  /health",
 				"POST /slack/interactions",
+				"GET  /api/v1/incidents",
+				"POST /api/v1/approvals/{id}/approve",
+				"POST /api/v1/approvals/{id}/reject",
+				"POST /api/v1/control/kill-switch (admin)",
 			},
 		)
 		if serveErr := srv.ListenAndServe(); serveErr != nil && serveErr != http.ErrServerClosed {

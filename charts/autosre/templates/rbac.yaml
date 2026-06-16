@@ -1,0 +1,35 @@
+{{- if .Values.rbac.create }}
+# ClusterRole: read-only access to pods, events, deployments, replicasets.
+# The agent never writes to the cluster directly — all changes go through GitOps + ArgoCD.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "autosre.fullname" . }}
+  labels:
+    {{- include "autosre.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources: ["pods", "events", "namespaces"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["apps"]
+    resources: ["deployments", "replicasets", "statefulsets"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["batch"]
+    resources: ["jobs", "cronjobs"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "autosre.fullname" . }}
+  labels:
+    {{- include "autosre.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "autosre.fullname" . }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "autosre.serviceAccountName" . }}
+    namespace: {{ .Release.Namespace }}
+{{- end }}

@@ -184,6 +184,9 @@ func (o *Orchestrator) schedule(ctx context.Context, inc contracts.Incident) {
 // When true, no Apply calls are made regardless of the verdict or ApplyEnabled flag.
 func (o *Orchestrator) SetKillSwitch(engaged bool) { o.kill.Store(engaged) }
 
+// ApplyEnabled reports whether real GitOps commits are currently permitted.
+func (o *Orchestrator) ApplyEnabled() bool { return o.cfg.ApplyEnabled }
+
 // KillSwitchEngaged reports whether the kill switch is currently on.
 func (o *Orchestrator) KillSwitchEngaged() bool { return o.kill.Load() }
 

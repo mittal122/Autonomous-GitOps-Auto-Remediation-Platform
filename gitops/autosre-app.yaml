@@ -1,0 +1,57 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: autosre
+  namespace: argocd
+  # Finalizer ensures ArgoCD deletes child resources when this Application is deleted.
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+
+  source:
+    # Point at your GitOps config repo and the Helm chart path.
+    # Replace with your actual repo URL.
+    repoURL: https://github.com/YOUR_ORG/autosre-gitops
+    targetRevision: HEAD
+    path: charts/autosre
+
+    helm:
+      releaseName: autosre
+      valueFiles:
+        - values.yaml
+      # Override specific values for the production environment.
+      # Sensitive values (tokens, keys) come from a Kubernetes Secret referenced
+      # via agent.envFrom — never inlined here.
+      parameters:
+        - name: agent.applyEnabled
+          value: "false"   # change to "true" after validating dry-run behaviour
+        - name: agent.oidc.enabled
+          value: "false"   # set to "true" and configure issuerURL for production
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: autosre
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+    retry:
+      limit: 3
+      backoff:
+        duration: 10s
+        factor: 2
+        maxDuration: 3m
+
+  # Ignore in-cluster changes to kill-switch ConfigMap / env — operators may
+  # flip these without going through Git during an incident.
+  ignoreDifferences:
+    - group: apps
+      kind: Deployment
+      name: autosre-agent
+      jsonPointers:
+        - /spec/template/spec/containers/0/env

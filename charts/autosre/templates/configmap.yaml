@@ -1,0 +1,38 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "autosre.fullname" . }}-policy
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "autosre.labels" . | nindent 4 }}
+data:
+  policy.yaml: |
+    # AutoSRE Policy — mounted at /etc/autosre/policy.yaml inside the agent pod.
+    # Edit this ConfigMap to change policy without rebuilding the image.
+    # See docs/OPERATOR_RUNBOOK.md for field reference.
+    defaultAutonomy: propose
+    confidenceThreshold: 0.90
+    requireDryRun: true
+    failureModeRules:
+      OOMKilled:
+        autonomy: full-auto
+        allowedActions: [bump-memory-limit]
+      CrashLoopBackOff:
+        autonomy: auto-with-approval
+        allowedActions: [rollback-deployment]
+      ImagePullBackOff:
+        autonomy: propose
+        allowedActions: [rollback-deployment]
+      FailedScheduling:
+        autonomy: propose
+        allowedActions: [scale-deployment]
+    protectedNamespaces:
+      - kube-system
+      - kube-public
+      - kube-node-lease
+    blastRadius:
+      maxReplicaDelta: 2
+      maxMemoryBumpFactor: 2.0
+    circuitBreaker:
+      maxActionsPerWindow: 5
+      windowSeconds: 300

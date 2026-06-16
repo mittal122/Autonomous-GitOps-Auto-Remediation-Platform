@@ -1,0 +1,62 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "autosre.fullname" . }}-diagnoser
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "autosre.labels" . | nindent 4 }}
+    app.kubernetes.io/component: diagnoser
+spec:
+  replicas: {{ .Values.diagnoser.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "autosre.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: diagnoser
+  template:
+    metadata:
+      labels:
+        {{- include "autosre.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: diagnoser
+    spec:
+      {{- with .Values.global.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: diagnoser
+          image: "{{ .Values.diagnoser.image.repository }}:{{ .Values.diagnoser.image.tag }}"
+          imagePullPolicy: {{ .Values.diagnoser.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.diagnoser.service.port }}
+              protocol: TCP
+          env:
+            - name: DIAGNOSER_PORT
+              value: {{ .Values.diagnoser.service.port | quote }}
+            - name: DIAGNOSER_HOST
+              value: "0.0.0.0"
+            - name: GEMINI_MODEL
+              value: {{ .Values.diagnoser.geminiModel | quote }}
+            - name: LLM_TIMEOUT_SECONDS
+              value: {{ .Values.diagnoser.llmTimeoutSeconds | quote }}
+            {{- with .Values.diagnoser.env }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          {{- with .Values.diagnoser.envFrom }}
+          envFrom:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 30
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            {{- toYaml .Values.diagnoser.resources | nindent 12 }}

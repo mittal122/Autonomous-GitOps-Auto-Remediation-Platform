@@ -1,0 +1,121 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "autosre.fullname" . }}-agent
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "autosre.labels" . | nindent 4 }}
+    app.kubernetes.io/component: agent
+spec:
+  replicas: {{ .Values.agent.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "autosre.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: agent
+  template:
+    metadata:
+      labels:
+        {{- include "autosre.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: agent
+    spec:
+      serviceAccountName: {{ include "autosre.serviceAccountName" . }}
+      {{- with .Values.global.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: agent
+          image: "{{ .Values.agent.image.repository }}:{{ .Values.agent.image.tag }}"
+          imagePullPolicy: {{ .Values.agent.image.pullPolicy }}
+          args: ["run"]
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          env:
+            - name: IN_CLUSTER
+              value: "true"
+            - name: WEBHOOK_ADDR
+              value: ":8080"
+            - name: ORCHESTRATOR_APPLY_ENABLED
+              value: {{ .Values.agent.applyEnabled | quote }}
+            - name: ORCHESTRATOR_KILL_SWITCH
+              value: {{ .Values.agent.killSwitch | quote }}
+            - name: AUDIT_ENABLED
+              value: {{ .Values.agent.audit.enabled | quote }}
+            - name: AUDIT_FILE_PATH
+              value: {{ .Values.agent.audit.filePath | quote }}
+            - name: LEARNER_ADDR
+              value: {{ .Values.agent.learnerAddr | quote }}
+            - name: DIAGNOSER_ADDR
+              value: "http://{{ include "autosre.fullname" . }}-diagnoser:{{ .Values.diagnoser.service.port }}"
+            - name: POLICY_FILE
+              value: {{ .Values.agent.policyFile | quote }}
+            - name: API_OIDC_ENABLED
+              value: {{ .Values.agent.oidc.enabled | quote }}
+            - name: API_OIDC_ISSUER_URL
+              value: {{ .Values.agent.oidc.issuerURL | quote }}
+            - name: API_OIDC_CLIENT_ID
+              value: {{ .Values.agent.oidc.clientID | quote }}
+            - name: API_OIDC_ROLES_CLAIM
+              value: {{ .Values.agent.oidc.rolesClaimKey | quote }}
+            {{- if .Values.agent.webUIDir }}
+            - name: WEB_UI_DIR
+              value: {{ .Values.agent.webUIDir | quote }}
+            {{- end }}
+            {{- with .Values.agent.env }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          {{- with .Values.agent.envFrom }}
+          envFrom:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          volumeMounts:
+            - name: policy
+              mountPath: /etc/autosre
+              readOnly: true
+            {{- if .Values.agent.persistence.enabled }}
+            - name: data
+              mountPath: /data
+            {{- end }}
+          livenessProbe:
+            httpGet:
+              path: /api/v1/health
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 30
+          readinessProbe:
+            httpGet:
+              path: /api/v1/health
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            {{- toYaml .Values.agent.resources | nindent 12 }}
+      volumes:
+        - name: policy
+          configMap:
+            name: {{ include "autosre.fullname" . }}-policy
+        {{- if .Values.agent.persistence.enabled }}
+        - name: data
+          persistentVolumeClaim:
+            claimName: {{ include "autosre.fullname" . }}-agent-data
+        {{- end }}
+---
+{{- if .Values.agent.persistence.enabled }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "autosre.fullname" . }}-agent-data
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "autosre.labels" . | nindent 4 }}
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: {{ .Values.agent.persistence.size }}
+  {{- if .Values.agent.persistence.storageClass }}
+  storageClassName: {{ .Values.agent.persistence.storageClass }}
+  {{- end }}
+{{- end }}

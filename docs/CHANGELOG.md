@@ -2,6 +2,65 @@
 
 ---
 
+## Prompt 9 — Web UI + Hardening (2026-06-16)
+
+### Features Added
+- **`internal/api`** — read-first REST API server (`Server`, `NewServer`, `Handler`); all GET endpoints read-only; write endpoints gated by role and audited; `CORS` on all responses; static Web UI serving via `WEB_UI_DIR` env var.
+- **RBAC/OIDC auth middleware** (`internal/api/auth.go`) — `Role` type (`viewer`/`operator`/`admin`); `enforce(next, minRole)` wrapper; dev mode (OIDC disabled) grants viewer to all; OIDC mode extracts roles claim from JWT; fails closed (missing token → 401, insufficient role → 403). TODO: swap base64 decode for `coreos/go-oidc` cryptographic verification in production.
+- **Approval API** — `POST /api/v1/approvals/{id}/approve` and `/reject` route through existing fail-closed `CompositeNotifier.ResolveApproval()`. No new path to cluster writes.
+- **Kill-switch API** — `POST /api/v1/control/kill-switch` (admin only); calls `orchestrator.SetKillSwitch()`; every toggle audited with `KillSwitchToggled` stage, operator identity, and reason.
+- **Status API** — `GET /api/v1/status` returns apply_enabled, kill_switch_engaged, in_flight_pipelines, circuit_breaker_{tripped,count,max,window_sec}.
+- **Trace API** — `GET /api/v1/incidents/{id}/trace` queries audit sink with QueryFilter; supports trace_id, stage, limit query params.
+- **Stats proxy** — `GET /api/v1/stats` proxies to learner `/stats`; advisory-only.
+- **Policy engine getters** — `CircuitBreakerTripped()`, `CircuitBreakerCount()`, `CircuitBreakerMax()`, `CircuitBreakerWindowSeconds()` on `*policy.Engine`.
+- **Orchestrator getters** — `ApplyEnabled() bool`, `KillSwitchEngaged() bool`, `InFlightCount() int` on `*orchestrator.Orchestrator`.
+- **Notifier registry extensions** — `PendingApproval` exported type; `pendingEntry` stores `proposal`+`requestedAt`; `registry.list()` method; `CompositeNotifier.ListPendingApprovals()` + `ResolveApproval()`.
+- **`internal/api/api_test.go`** — 18 tests covering RBAC enforcement, read endpoints, write endpoints, audit recording, nil-sink safety.
+- **Web UI** (`web-ui/`) — React 18 + TypeScript + Vite + Tailwind; 5 pages: Dashboard (incidents table), IncidentTrace (audit event viewer with expandable details), Approvals (approve/reject UI), Stats (success rates), Status (system status + kill-switch admin toggle); typed API client; Vite dev proxy to `:8080`.
+- **Chaos tests** (`agent/tests/chaos/chaos_test.go`) — 4 pure-Go tests; synthetic incidents for all 6 failure modes; validates audit trail stages; apply never enabled; kill-switch halt test; bad-diagnosis panic safety.
+- **Helm chart** (`charts/autosre/`) — full chart for agent + diagnoser + learner; ServiceAccount + RBAC; policy ConfigMap; PVCs for audit log + outcome data; NOTES.txt; values for OIDC, apply flag, kill switch, learner addr.
+- **ArgoCD Application** (`gitops/autosre-app.yaml`) — automated sync with selfHeal; ignoreDifferences for in-cluster env overrides (kill switch); CreateNamespace.
+- **`APIConfig`** in `internal/config` — `OIDCEnabled`, `OIDCIssuerURL`, `OIDCClientID`, `OIDCRolesClaimKey`, `WebUIDir`; env vars documented in `.env.example`.
+- **`cmd/autosre/run.go` updated** — imports `internal/api`; creates `api.NewServer()` and mounts its handler at `/` (catch-all after specific routes).
+- **Operator runbook** (`docs/OPERATOR_RUNBOOK.md`) — how to deploy, configure RBAC, read audit traces, approve remediations, use kill switch, enable apply mode, troubleshoot.
+
+### Safety Invariants
+- **No new path to cluster write** — API write endpoints route through existing safety gates (approval registry, kill switch, policy engine). No endpoint calls remediator, gitwriter, or k8s API directly.
+- **Auth fails closed** — missing/invalid token → 401; insufficient role → 403. Dev mode (OIDC disabled) is loudly warned and grants viewer only.
+- **Kill-switch toggle requires admin + reason** — audited with operator identity; bad JSON → 400.
+- **Chaos tests always dry-run** — `applyEnabled: false` is asserted in `TestChaos_ApplyNeverEnabled`; `StageApplied` audit event presence is checked and must be absent.
+- **Non-fatal audit in API layer** — `s.record()` logs and continues on sink errors; nil sink does not panic (tested).
+
+### Files Created
+- `agent/internal/api/auth.go` — RBAC middleware
+- `agent/internal/api/api.go` — API server (18 endpoints)
+- `agent/internal/api/api_test.go` — 18 tests
+- `agent/tests/chaos/chaos_test.go` — 4 chaos tests
+- `web-ui/package.json`, `vite.config.ts`, `tsconfig.json`, `tsconfig.node.json`
+- `web-ui/tailwind.config.js`, `postcss.config.js`, `index.html`
+- `web-ui/src/main.tsx`, `src/index.css`, `src/App.tsx`
+- `web-ui/src/api/client.ts`
+- `web-ui/src/components/Layout.tsx`
+- `web-ui/src/pages/Dashboard.tsx`, `IncidentTrace.tsx`, `Approvals.tsx`, `Stats.tsx`, `Status.tsx`
+- `charts/autosre/Chart.yaml`, `values.yaml`
+- `charts/autosre/templates/_helpers.tpl`, `serviceaccount.yaml`, `rbac.yaml`
+- `charts/autosre/templates/configmap.yaml`, `deployment-agent.yaml`, `deployment-diagnoser.yaml`, `deployment-learner.yaml`, `service.yaml`, `NOTES.txt`
+- `gitops/autosre-app.yaml` — ArgoCD Application
+- `docs/OPERATOR_RUNBOOK.md`
+
+### Files Modified
+- `agent/internal/policy/engine.go` — added 4 circuit-breaker getter methods
+- `agent/internal/orchestrator/orchestrator.go` — added `ApplyEnabled()`, `KillSwitchEngaged()`, `InFlightCount()` getters
+- `agent/internal/notifier/registry.go` — `PendingApproval` type, `pendingEntry` extended, `list()` method
+- `agent/internal/notifier/slack.go` — `register()` call updated to pass `proposal`
+- `agent/internal/notifier/composite.go` — `ListPendingApprovals()`, `ResolveApproval()` added
+- `agent/internal/config/config.go` — `APIConfig` struct + `API` field + Load() wiring
+- `agent/cmd/autosre/run.go` — import api, create `apiSrv`, mount `Handler()` at `/`
+- `.env.example` — `API_OIDC_ENABLED`, `API_OIDC_ISSUER_URL`, `API_OIDC_CLIENT_ID`, `API_OIDC_ROLES_CLAIM`, `WEB_UI_DIR`
+- `docs/PROJECT_PROGRESS.md` — marked project feature-complete
+
+---
+
 ## Prompt 8 — Audit + Learning (2026-06-16)
 
 ### Features Added

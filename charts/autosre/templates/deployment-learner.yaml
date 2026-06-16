@@ -1,0 +1,89 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "autosre.fullname" . }}-learner
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "autosre.labels" . | nindent 4 }}
+    app.kubernetes.io/component: learner
+spec:
+  replicas: {{ .Values.learner.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "autosre.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: learner
+  template:
+    metadata:
+      labels:
+        {{- include "autosre.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: learner
+    spec:
+      {{- with .Values.global.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: learner
+          image: "{{ .Values.learner.image.repository }}:{{ .Values.learner.image.tag }}"
+          imagePullPolicy: {{ .Values.learner.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.learner.service.port }}
+              protocol: TCP
+          env:
+            - name: LEARNER_PORT
+              value: {{ .Values.learner.service.port | quote }}
+            - name: LEARNER_HOST
+              value: "0.0.0.0"
+            - name: LEARNER_STATS_PATH
+              value: "/data/outcomes.jsonl"
+            {{- with .Values.learner.env }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          {{- with .Values.learner.envFrom }}
+          envFrom:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          volumeMounts:
+            {{- if .Values.learner.persistence.enabled }}
+            - name: data
+              mountPath: /data
+            {{- end }}
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 30
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 3
+            periodSeconds: 10
+          resources:
+            {{- toYaml .Values.learner.resources | nindent 12 }}
+      volumes:
+        {{- if .Values.learner.persistence.enabled }}
+        - name: data
+          persistentVolumeClaim:
+            claimName: {{ include "autosre.fullname" . }}-learner-data
+        {{- end }}
+---
+{{- if .Values.learner.persistence.enabled }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "autosre.fullname" . }}-learner-data
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "autosre.labels" . | nindent 4 }}
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: {{ .Values.learner.persistence.size }}
+  {{- if .Values.learner.persistence.storageClass }}
+  storageClassName: {{ .Values.learner.persistence.storageClass }}
+  {{- end }}
+{{- end }}

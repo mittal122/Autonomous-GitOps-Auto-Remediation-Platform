@@ -1,0 +1,56 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "autosre.fullname" . }}-agent
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "autosre.labels" . | nindent 4 }}
+    app.kubernetes.io/component: agent
+spec:
+  type: ClusterIP
+  ports:
+    - name: http
+      port: {{ .Values.agent.service.port }}
+      targetPort: http
+      protocol: TCP
+  selector:
+    {{- include "autosre.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: agent
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "autosre.fullname" . }}-diagnoser
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "autosre.labels" . | nindent 4 }}
+    app.kubernetes.io/component: diagnoser
+spec:
+  type: ClusterIP
+  ports:
+    - name: http
+      port: {{ .Values.diagnoser.service.port }}
+      targetPort: http
+      protocol: TCP
+  selector:
+    {{- include "autosre.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: diagnoser
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "autosre.fullname" . }}-learner
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "autosre.labels" . | nindent 4 }}
+    app.kubernetes.io/component: learner
+spec:
+  type: ClusterIP
+  ports:
+    - name: http
+      port: {{ .Values.learner.service.port }}
+      targetPort: http
+      protocol: TCP
+  selector:
+    {{- include "autosre.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: learner

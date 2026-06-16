@@ -99,6 +99,24 @@ type DiagnoserConfig struct {
 	Timeout time.Duration // env: DIAGNOSER_TIMEOUT
 }
 
+// APIConfig controls the REST API server and OIDC auth.
+type APIConfig struct {
+	// OIDCEnabled enables JWT validation on all API routes. Default: false (dev mode — all
+	// requests are treated as viewer). Set to true in production.
+	OIDCEnabled bool // env: API_OIDC_ENABLED
+	// OIDCIssuerURL is the OIDC provider issuer (e.g. "https://accounts.google.com").
+	// Required when OIDCEnabled is true.
+	OIDCIssuerURL string // env: API_OIDC_ISSUER_URL
+	// OIDCClientID is the OAuth2 client ID used for token audience validation.
+	OIDCClientID string // env: API_OIDC_CLIENT_ID
+	// OIDCRolesClaimKey is the JWT claim key containing the user's roles list.
+	// Default: "roles".
+	OIDCRolesClaimKey string // env: API_OIDC_ROLES_CLAIM
+	// WebUIDir is the path to the built web UI static files.
+	// When set, the Go server serves the UI at /. When empty, / returns a "build UI" message.
+	WebUIDir string // env: WEB_UI_DIR
+}
+
 // AuditConfig controls the append-only event log written by the orchestrator pipeline.
 type AuditConfig struct {
 	// Enabled writes a JSONL audit file. Default: true.
@@ -148,6 +166,9 @@ type Config struct {
 
 	// Learner outcome client
 	Learner LearnerConfig
+
+	// Web API + Auth
+	API APIConfig
 
 	// Logging
 	LogLevel string // "debug", "info", "warn", "error"; default "info"
@@ -209,6 +230,13 @@ func Load() Config {
 		Learner: LearnerConfig{
 			Addr:    getEnv("LEARNER_ADDR", ""),
 			Timeout: getDuration("LEARNER_TIMEOUT", 5*time.Second),
+		},
+		API: APIConfig{
+			OIDCEnabled:       getEnv("API_OIDC_ENABLED", "false") == "true",
+			OIDCIssuerURL:     getEnv("API_OIDC_ISSUER_URL", ""),
+			OIDCClientID:      getEnv("API_OIDC_CLIENT_ID", ""),
+			OIDCRolesClaimKey: getEnv("API_OIDC_ROLES_CLAIM", "roles"),
+			WebUIDir:          getEnv("WEB_UI_DIR", ""),
 		},
 	}
 }

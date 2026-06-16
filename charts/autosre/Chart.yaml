@@ -1,0 +1,14 @@
+apiVersion: v2
+name: autosre
+description: Autonomous GitOps & Auto-Remediation Platform
+type: application
+version: 0.9.0
+appVersion: "0.9.0"
+keywords:
+  - gitops
+  - sre
+  - auto-remediation
+  - kubernetes
+maintainers:
+  - name: autosre-team
+    email: autosre@localhost

@@ -1,0 +1,153 @@
+# Default values for the autosre Helm chart.
+# See docs/OPERATOR_RUNBOOK.md for full configuration reference.
+
+# ---------------------------------------------------------------------------
+# Global settings
+# ---------------------------------------------------------------------------
+global:
+  imageRegistry: ""   # prefix for all image pulls (e.g. "my-registry.io/")
+  imagePullSecrets: []
+
+# ---------------------------------------------------------------------------
+# Agent (Go)
+# ---------------------------------------------------------------------------
+agent:
+  image:
+    repository: ghcr.io/autosre/agent
+    tag: "latest"
+    pullPolicy: IfNotPresent
+
+  replicaCount: 1
+
+  # Expose on :8080 inside the cluster
+  service:
+    port: 8080
+
+  # Safety defaults — DRY-RUN-ONLY. Set applyEnabled=true only after review.
+  applyEnabled: false
+  killSwitch: false
+
+  # OIDC auth for the Web API (disabled in dev mode — all requests get viewer access)
+  oidc:
+    enabled: false
+    issuerURL: ""
+    clientID: ""
+    rolesClaimKey: "roles"
+
+  # Audit log — append-only JSONL file
+  audit:
+    enabled: true
+    filePath: /data/audit.jsonl
+
+  # Learner service URL (internal service DNS)
+  learnerAddr: "http://autosre-learner:8002"
+
+  # Web UI — set to the path where web-ui/dist is mounted
+  webUIDir: ""
+
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 256Mi
+
+  # Path to policy.yaml (mounted as ConfigMap)
+  policyFile: /etc/autosre/policy.yaml
+
+  # Data volume (audit log, etc.)
+  persistence:
+    enabled: true
+    size: 1Gi
+    storageClass: ""
+
+  env: []    # extra env vars; use for SLACK_BOT_TOKEN, GITOPS_REPO_PATH, etc.
+  envFrom: [] # refs to Secrets/ConfigMaps with credentials
+
+# ---------------------------------------------------------------------------
+# Diagnoser (Python / FastAPI)
+# ---------------------------------------------------------------------------
+diagnoser:
+  image:
+    repository: ghcr.io/autosre/diagnoser
+    tag: "latest"
+    pullPolicy: IfNotPresent
+
+  replicaCount: 1
+
+  service:
+    port: 8001
+
+  geminiModel: "gemini-1.5-flash"
+  llmTimeoutSeconds: 30
+
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 1000m
+      memory: 512Mi
+
+  env: []
+  envFrom: []   # use for GEMINI_API_KEY Secret reference
+
+# ---------------------------------------------------------------------------
+# Learner (Python / FastAPI)
+# ---------------------------------------------------------------------------
+learner:
+  image:
+    repository: ghcr.io/autosre/learner
+    tag: "latest"
+    pullPolicy: IfNotPresent
+
+  replicaCount: 1
+
+  service:
+    port: 8002
+
+  persistence:
+    enabled: true
+    size: 512Mi
+    storageClass: ""
+
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 128Mi
+
+  env: []
+  envFrom: []
+
+# ---------------------------------------------------------------------------
+# ServiceAccount & RBAC
+# ---------------------------------------------------------------------------
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+rbac:
+  create: true
+
+# ---------------------------------------------------------------------------
+# ArgoCD / GitOps
+# ---------------------------------------------------------------------------
+argocd:
+  # When true, autosre watches an ArgoCD Application for sync status
+  enabled: false
+  server: ""
+
+# ---------------------------------------------------------------------------
+# Ingress (optional — expose Web UI + API externally)
+# ---------------------------------------------------------------------------
+ingress:
+  enabled: false
+  className: ""
+  host: "autosre.local"
+  annotations: {}
+  tls: []

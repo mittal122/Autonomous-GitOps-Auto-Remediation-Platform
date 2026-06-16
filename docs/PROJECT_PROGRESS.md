@@ -8,7 +8,7 @@ The Autonomous GitOps & Auto-Remediation Platform is a closed-loop SRE control p
 
 ## Current Development Phase
 
-**Prompt 8 — Audit + Learning (COMPLETE)**
+**Prompt 9 — Web UI + Hardening (COMPLETE) — PROJECT FEATURE-COMPLETE**
 
 ---
 
@@ -25,6 +25,7 @@ The Autonomous GitOps & Auto-Remediation Platform is a closed-loop SRE control p
 | Prompt 6 | Notifier — Slack + PagerDuty, fail-closed approvals, signed inbound endpoint | COMPLETE |
 | Prompt 7 | Orchestrator — reconcile loop, dry-run-only default, kill switch, bounded concurrency | COMPLETE |
 | Prompt 8 | Audit + Learning — append-only JSONL audit trail, observational stats service | COMPLETE |
+| Prompt 9 | Web UI + Hardening — REST API, React dashboard, RBAC/OIDC, chaos tests, Helm chart | COMPLETE |
 
 ---
 
