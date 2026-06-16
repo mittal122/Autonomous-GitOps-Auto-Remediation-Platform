@@ -2,6 +2,53 @@
 
 ---
 
+## Prompt 8 — Audit + Learning (2026-06-16)
+
+### Features Added
+- **`internal/audit`** — append-only `AuditSink` interface (`Record` + `Query` only; no Update/Delete); `AuditEvent` type with `TraceID`/`IncidentID`/`Stage`/`Outcome`/`Details`; `FileSink` (JSONL, append mode), `MemorySink` (goroutine-safe, in-memory), `NoOp` (discard); `QueryFilter` with IncidentID/TraceID/Stage/Since/Until/Limit.
+- **`internal/outcome`** — `Record` struct (all pipeline end-state fields); `Reporter` interface; `Client` (HTTP POST to `/outcome`, non-fatal, configurable timeout); no-op when `Addr` is empty.
+- **`AuditConfig`** in `internal/config` — `Enabled` (default true), `FilePath` (default `./data/audit.jsonl`); env vars `AUDIT_ENABLED`, `AUDIT_FILE_PATH`.
+- **`LearnerConfig`** in `internal/config` — `Addr` (default `""` = disabled), `Timeout` (5s); env vars `LEARNER_ADDR`, `LEARNER_TIMEOUT`.
+- **Pipeline audit trail** — `runPipeline` now generates a `TraceID` (`uid.New()`) at start; emits an `AuditEvent` at every stage (Detected, Diagnosed, Decided, ApprovalRequested, ApprovalResolved, DryRun, Applied, Verified, Notified, Escalated). Sink errors are logged and swallowed — a failing sink never breaks the pipeline.
+- **Outcome reporting** — `runPipeline` defers an `outcome.Record` post after policy-decision stage is reached; applied/verification fields populated as pipeline progresses; reporter errors are non-fatal.
+- **`autosre audit` CLI** — `autosre audit [--incident] [--trace] [--since] [--stage] [--limit] [--json]`; queries the JSONL file and prints human-readable or raw JSON.
+- **Learner FastAPI service** — `POST /outcome` (append-only, 204), `GET /stats` (read-only advisory success rates by `failure_mode/action`), `GET /healthz`; backed by JSONL `OutcomeStore` + pure `compute_stats` aggregator.
+- **Python tests** — `test_store.py` (7 tests), `test_aggregator.py` (7 tests), `test_server.py` (10 tests); all use `tmp_path`/`monkeypatch`; no network or cluster calls.
+
+### Safety Invariants
+- **Non-fatal audit**: sink error = log + continue; pipeline never aborted by audit.
+- **Advisory-only learning**: stats never read by policy engine, diagnosis, or any control-flow path. `GET /stats` has no side effects.
+- **Append-only**: `AuditSink` interface has no `Update`/`Delete`; `OutcomeStore` has no `update`/`delete`/`clear` methods.
+- **No DB**: JSONL for events, JSONL for outcomes. Durable store marked with `// TODO`.
+- **No cluster writes**: audit and outcome packages import only stdlib + uid. Safety grep CLEAN.
+
+### Files Created
+- `agent/internal/audit/audit.go` — types, interface, QueryFilter, NoOp
+- `agent/internal/audit/memory_sink.go` — in-memory goroutine-safe sink
+- `agent/internal/audit/file_sink.go` — append-only JSONL file sink
+- `agent/internal/audit/audit_test.go` — 10 tests
+- `agent/internal/outcome/outcome.go` — Record, Reporter interface
+- `agent/internal/outcome/client.go` — HTTP client
+- `agent/cmd/autosre/audit.go` — `autosre audit` CLI
+- `learner/learner/contracts.py` — Outcome, FailureModeActionStats, StatsResponse
+- `learner/learner/store.py` — OutcomeStore (append-only JSONL)
+- `learner/learner/aggregator.py` — compute_stats (pure function)
+- `learner/learner/server.py` — FastAPI service
+- `learner/tests/test_store.py`, `test_aggregator.py`, `test_server.py`
+
+### Files Modified
+- `agent/internal/config/config.go` — added `AuditConfig`, `LearnerConfig`; wired into `Config`/`Load()`
+- `agent/internal/orchestrator/orchestrator.go` — added `sink`/`outcomes` fields; updated `New()` (2 new params); added `record()`/`reportOutcome()` non-fatal helpers
+- `agent/internal/orchestrator/pipeline.go` — audit events at every stage; outcome record collection + deferred post
+- `agent/internal/orchestrator/orchestrator_test.go` — updated `newTestOrchestrator` (nil, nil for new params); 2 new audit tests
+- `agent/cmd/autosre/run.go` — wire `audit.FileSink` + `outcome.Client`; log on disable/error
+- `agent/cmd/autosre/main.go` — added `"audit"` subcommand dispatch
+- `learner/learner/main.py` — replaced placeholder with real uvicorn entrypoint
+- `learner/pyproject.toml` — added fastapi, uvicorn, pydantic, httpx deps; fixed build-backend
+- `.env.example` — added audit + learner env vars
+
+---
+
 ## Prompt 7 — Orchestrator (2026-06-16)
 
 ### Features Added

@@ -99,6 +99,23 @@ type DiagnoserConfig struct {
 	Timeout time.Duration // env: DIAGNOSER_TIMEOUT
 }
 
+// AuditConfig controls the append-only event log written by the orchestrator pipeline.
+type AuditConfig struct {
+	// Enabled writes a JSONL audit file. Default: true.
+	Enabled bool // env: AUDIT_ENABLED
+	// FilePath is the path of the JSONL audit file. Default: "./data/audit.jsonl".
+	FilePath string // env: AUDIT_FILE_PATH
+}
+
+// LearnerConfig controls how the Go agent reaches the Python learner service.
+type LearnerConfig struct {
+	// Addr is the base URL of the learner (e.g. "http://localhost:8002").
+	// Empty string disables outcome reporting entirely.
+	Addr string // env: LEARNER_ADDR
+	// Timeout is the per-report HTTP timeout. Default: 5s.
+	Timeout time.Duration // env: LEARNER_TIMEOUT
+}
+
 // Config is the top-level runtime configuration for the agent.
 type Config struct {
 	// Kubernetes
@@ -125,6 +142,12 @@ type Config struct {
 
 	// Orchestrator
 	Orchestrator OrchestratorConfig
+
+	// Audit log
+	Audit AuditConfig
+
+	// Learner outcome client
+	Learner LearnerConfig
 
 	// Logging
 	LogLevel string // "debug", "info", "warn", "error"; default "info"
@@ -178,6 +201,14 @@ func Load() Config {
 			DefaultContainer:     getEnv("ORCHESTRATOR_DEFAULT_CONTAINER", "app"),
 			DefaultScaleReplicas: getInt("ORCHESTRATOR_DEFAULT_SCALE_REPLICAS", 2),
 			PolicyFile:           getEnv("POLICY_FILE", ""),
+		},
+		Audit: AuditConfig{
+			Enabled:  getEnv("AUDIT_ENABLED", "true") != "false",
+			FilePath: getEnv("AUDIT_FILE_PATH", "./data/audit.jsonl"),
+		},
+		Learner: LearnerConfig{
+			Addr:    getEnv("LEARNER_ADDR", ""),
+			Timeout: getDuration("LEARNER_TIMEOUT", 5*time.Second),
 		},
 	}
 }

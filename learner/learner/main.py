@@ -1,17 +1,17 @@
-"""Learner service entrypoint.
-
-TODO (future prompt): start background worker, wire up outcome store
-"""
+"""Entrypoint for the AutoSRE Learner service."""
 
 import os
-import sys
+
+import uvicorn
+
+from .server import app
 
 
 def main() -> None:
-    env = os.getenv("PYTHON_ENV", "development")
-    print(f"AutoSRE Learner starting (env={env})")
-    print("No subsystems active yet — foundation scaffold only.")
-    sys.exit(0)
+    host = os.getenv("LEARNER_HOST", "0.0.0.0")
+    port = int(os.getenv("LEARNER_PORT", "8002"))
+    log_level = os.getenv("LOG_LEVEL", "info").lower()
+    uvicorn.run(app, host=host, port=port, log_level=log_level)
 
 
 if __name__ == "__main__":

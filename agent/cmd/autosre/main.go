@@ -52,6 +52,8 @@ func main() {
 			os.Exit(runNotify(os.Args[2:], cfg, log))
 		case "run":
 			os.Exit(runRun(os.Args[2:], cfg, log))
+		case "audit":
+			os.Exit(runAudit(os.Args[2:], cfg, log))
 		}
 	}
 

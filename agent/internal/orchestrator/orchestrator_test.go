@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/autosre/agent/internal/audit"
 	"github.com/autosre/agent/internal/config"
 	"github.com/autosre/agent/internal/contracts"
 	"github.com/autosre/agent/internal/correlator"
@@ -199,7 +200,7 @@ func newTestOrchestrator(opts orchestratorOpts) (*Orchestrator, *notifier.MockNo
 		DefaultContainer:     "app",
 		DefaultScaleReplicas: 2,
 	}
-	orch := New(cfg, nil, pol, mock, &mockVerifiable{result: opts.verResult}, opts.builder, discardLog())
+	orch := New(cfg, nil, pol, mock, &mockVerifiable{result: opts.verResult}, opts.builder, nil, nil, discardLog())
 	return orch, mock
 }
 
@@ -543,6 +544,101 @@ func TestOrchestrator_Run_ChannelClose(t *testing.T) {
 	case <-time.After(500 * time.Millisecond):
 		t.Error("Run did not return within 500ms after events channel closed")
 	}
+}
+
+// ---------------------------------------------------------------------------
+// Audit integration tests
+// ---------------------------------------------------------------------------
+
+// A healthy pipeline with a MemorySink should emit events for every stage,
+// all sharing the same TraceID.
+func TestPipeline_AuditTrail_AUTO(t *testing.T) {
+	action := &mockAction{}
+	sink := &audit.MemorySink{}
+
+	pol := policy.New(autoPolicy(), discardLog())
+	cfg := config.OrchestratorConfig{
+		ApplyEnabled:         false,
+		MaxWorkers:           2,
+		DefaultContainer:     "app",
+		DefaultScaleReplicas: 2,
+	}
+	orch := New(cfg, nil, pol,
+		&notifier.MockNotifier{},
+		&mockVerifiable{result: contracts.VerificationResult{Outcome: contracts.VerificationRecovered}},
+		&mockActionBuilder{action: action},
+		sink, nil, discardLog(),
+	)
+	orch.diag = &mockDiagnosisClient{diag: oomDiagnosis()}
+
+	orch.runPipeline(context.Background(), testIncident("inc-audit"))
+
+	events := sink.All()
+	if len(events) == 0 {
+		t.Fatal("expected audit events; got none")
+	}
+	// All events for this pipeline run share the same non-empty TraceID.
+	firstTrace := events[0].TraceID
+	if firstTrace == "" {
+		t.Error("TraceID is empty")
+	}
+	for i, ev := range events {
+		if ev.TraceID != firstTrace {
+			t.Errorf("event[%d] TraceID %q != %q", i, ev.TraceID, firstTrace)
+		}
+		if ev.IncidentID != "inc-audit" {
+			t.Errorf("event[%d] IncidentID %q != inc-audit", i, ev.IncidentID)
+		}
+	}
+	// Verify we have at least Detected + Diagnosed + Decided + DryRun + Verified.
+	wantStages := []audit.Stage{
+		audit.StageDetected,
+		audit.StageDiagnosed,
+		audit.StageDecided,
+		audit.StageDryRun,
+		audit.StageVerified,
+	}
+	stageSet := make(map[audit.Stage]bool)
+	for _, ev := range events {
+		stageSet[ev.Stage] = true
+	}
+	for _, s := range wantStages {
+		if !stageSet[s] {
+			t.Errorf("expected stage %q in audit trail; stages present: %v", s, stageSet)
+		}
+	}
+}
+
+// An audit sink that always returns an error must not break the pipeline.
+func TestPipeline_AuditSink_NonFatal(t *testing.T) {
+	action := &mockAction{}
+	orch, mock := newTestOrchestrator(orchestratorOpts{
+		polCfg:    autoPolicy(),
+		builder:   &mockActionBuilder{action: action},
+		verResult: contracts.VerificationResult{Outcome: contracts.VerificationRecovered},
+	})
+	orch.diag = &mockDiagnosisClient{diag: oomDiagnosis()}
+	orch.sink = alwaysErrAuditSink{}
+
+	// Must not panic; pipeline should complete.
+	orch.runPipeline(context.Background(), testIncident("inc-audit-err"))
+
+	if got := action.dryRunCount(); got != 1 {
+		t.Errorf("DryRun calls = %d; want 1 (audit errors must be non-fatal)", got)
+	}
+	if len(mock.Notified) == 0 {
+		t.Error("Notify should be called even when audit sink errors")
+	}
+}
+
+// alwaysErrAuditSink returns an error on every Record call.
+type alwaysErrAuditSink struct{}
+
+func (alwaysErrAuditSink) Record(_ context.Context, _ audit.AuditEvent) error {
+	return errors.New("simulated sink failure")
+}
+func (alwaysErrAuditSink) Query(_ context.Context, _ audit.QueryFilter) ([]audit.AuditEvent, error) {
+	return nil, errors.New("simulated sink failure")
 }
 
 // ---------------------------------------------------------------------------

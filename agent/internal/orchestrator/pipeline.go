@@ -4,8 +4,12 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"time"
 
+	"github.com/autosre/agent/internal/audit"
 	"github.com/autosre/agent/internal/contracts"
+	"github.com/autosre/agent/internal/outcome"
+	"github.com/autosre/agent/internal/uid"
 )
 
 // runPipeline executes the 7-stage remediation pipeline for a single incident.
@@ -19,16 +23,40 @@ import (
 //  5. DryRun     — always call action.DryRun() to produce the human-readable description
 //  6. Apply      — only if cfg.ApplyEnabled AND kill switch not engaged
 //  7. Verify     — observe recovery window; FAILED/INCONCLUSIVE → Escalate; RECOVERED → Notify
+//
+// Every stage emits an AuditEvent (non-fatal). A completed-pipeline OutcomeRecord is
+// posted to the learner service at the end (non-fatal).
 func (o *Orchestrator) runPipeline(ctx context.Context, inc contracts.Incident) {
-	log := o.log.With(slog.String("incident_id", inc.ID))
+	traceID := uid.New()
+	log := o.log.With(
+		slog.String("incident_id", inc.ID),
+		slog.String("trace_id", traceID),
+	)
 	log.InfoContext(ctx, "orchestrator: pipeline started")
+
+	// outcomeRec is populated once we have enough information to post to the learner.
+	// nil → not enough data collected (diagnosis failed before policy stage).
+	var outcomeRec *outcome.Record
+	defer func() {
+		if outcomeRec != nil {
+			outcomeRec.Timestamp = time.Now()
+			o.reportOutcome(ctx, *outcomeRec)
+		}
+	}()
 
 	// -----------------------------------------------------------------------
 	// Stage 1: Diagnose
 	// -----------------------------------------------------------------------
+	o.record(ctx, traceID, inc.ID, audit.StageDetected, "started", map[string]string{
+		"severity": inc.Severity,
+	})
+
 	diag, err := o.diag.Diagnose(ctx, inc)
 	if err != nil {
 		log.ErrorContext(ctx, "orchestrator: diagnosis failed; skipping incident", "error", err)
+		o.record(ctx, traceID, inc.ID, audit.StageDiagnosed, "error", map[string]string{
+			"error": err.Error(),
+		})
 		return
 	}
 	log.InfoContext(ctx, "orchestrator: diagnosis",
@@ -37,6 +65,12 @@ func (o *Orchestrator) runPipeline(ctx context.Context, inc contracts.Incident) 
 		"confidence", diag.Confidence,
 		"source", diag.Source,
 	)
+	o.record(ctx, traceID, inc.ID, audit.StageDiagnosed, "ok", map[string]string{
+		"failure_mode":    diag.FailureMode,
+		"proposed_action": diag.ProposedAction,
+		"confidence":      fmt.Sprintf("%.4f", diag.Confidence),
+		"source":          diag.Source,
+	})
 
 	// -----------------------------------------------------------------------
 	// Stage 2: Build proposal
@@ -49,6 +83,19 @@ func (o *Orchestrator) runPipeline(ctx context.Context, inc contracts.Incident) 
 	decision := o.policy.Evaluate(proposal)
 	log.InfoContext(ctx, "orchestrator: policy verdict",
 		"verdict", decision.Verdict, "reason", decision.Reason)
+	o.record(ctx, traceID, inc.ID, audit.StageDecided, string(decision.Verdict), map[string]string{
+		"verdict": string(decision.Verdict),
+		"reason":  decision.Reason,
+	})
+
+	// Populate the outcome record now that we have all decision-stage fields.
+	outcomeRec = &outcome.Record{
+		IncidentID:     inc.ID,
+		TraceID:        traceID,
+		FailureMode:    diag.FailureMode,
+		ProposedAction: diag.ProposedAction,
+		Verdict:        string(decision.Verdict),
+	}
 
 	switch decision.Verdict {
 	case contracts.VerdictBlock:
@@ -58,16 +105,32 @@ func (o *Orchestrator) runPipeline(ctx context.Context, inc contracts.Incident) 
 			fmt.Sprintf("Policy engine blocked remediation.\nReason: %s\nRules: %v",
 				decision.Reason, decision.MatchedRules),
 		)
+		o.record(ctx, traceID, inc.ID, audit.StageNotified, "ok", map[string]string{
+			"subject": fmt.Sprintf("BLOCKED — incident %s", inc.ID),
+		})
 		return
 
 	case contracts.VerdictRequireApproval:
 		log.InfoContext(ctx, "orchestrator: approval required; requesting from notifier")
+		o.record(ctx, traceID, inc.ID, audit.StageApprovalRequested, "ok", map[string]string{
+			"namespace":   proposal.Namespace,
+			"action_type": proposal.Params.ActionType,
+		})
+
 		ar, err := o.notifier.RequestApproval(ctx, proposal)
 		if err != nil {
 			// Fail closed: internal notifier error → no action.
 			log.ErrorContext(ctx, "orchestrator: approval request error; failing closed", "error", err)
+			o.record(ctx, traceID, inc.ID, audit.StageApprovalResolved, "error", map[string]string{
+				"error": err.Error(),
+			})
 			return
 		}
+		o.record(ctx, traceID, inc.ID, audit.StageApprovalResolved, string(ar.Decision), map[string]string{
+			"decision": string(ar.Decision),
+			"approver": ar.Approver,
+			"reason":   ar.Reason,
+		})
 		if ar.Decision != contracts.ApprovalApproved {
 			log.InfoContext(ctx, "orchestrator: approval not granted; no action taken",
 				"decision", ar.Decision, "approver", ar.Approver, "reason", ar.Reason)
@@ -105,6 +168,9 @@ func (o *Orchestrator) runPipeline(ctx context.Context, inc contracts.Incident) 
 	action, err := o.builder.Build(diag, proposal, dryRun)
 	if err != nil {
 		log.ErrorContext(ctx, "orchestrator: cannot build action", "error", err)
+		o.record(ctx, traceID, inc.ID, audit.StageDryRun, "error", map[string]string{
+			"error": err.Error(),
+		})
 		return
 	}
 
@@ -112,10 +178,18 @@ func (o *Orchestrator) runPipeline(ctx context.Context, inc contracts.Incident) 
 	if err != nil {
 		log.ErrorContext(ctx, "orchestrator: dry-run failed", "error", err,
 			"action", action.Name())
+		o.record(ctx, traceID, inc.ID, audit.StageDryRun, "error", map[string]string{
+			"action": action.Name(),
+			"error":  err.Error(),
+		})
 		return
 	}
 	log.InfoContext(ctx, "orchestrator: dry-run",
 		"action", action.Name(), "description", description)
+	o.record(ctx, traceID, inc.ID, audit.StageDryRun, "ok", map[string]string{
+		"action":      action.Name(),
+		"description": description,
+	})
 
 	// -----------------------------------------------------------------------
 	// Stage 6: Apply (gated on ApplyEnabled + kill switch)
@@ -130,13 +204,25 @@ func (o *Orchestrator) runPipeline(ctx context.Context, inc contracts.Incident) 
 		if err := action.Apply(ctx); err != nil {
 			log.ErrorContext(ctx, "orchestrator: apply failed; escalating", "error", err,
 				"action", action.Name())
+			o.record(ctx, traceID, inc.ID, audit.StageApplied, "error", map[string]string{
+				"action": action.Name(),
+				"error":  err.Error(),
+			})
 			_ = o.notifier.Escalate(ctx, inc,
 				fmt.Sprintf("apply failed (action=%s): %v", action.Name(), err))
+			o.record(ctx, traceID, inc.ID, audit.StageEscalated, "ok", map[string]string{
+				"reason": fmt.Sprintf("apply failed: %v", err),
+			})
 			return
 		}
+		outcomeRec.Applied = true
 		remediationRef = "applied/" + inc.ID
 		log.InfoContext(ctx, "orchestrator: applied",
 			"action", action.Name(), "ref", remediationRef)
+		o.record(ctx, traceID, inc.ID, audit.StageApplied, "ok", map[string]string{
+			"action": action.Name(),
+			"ref":    remediationRef,
+		})
 	}
 
 	// -----------------------------------------------------------------------
@@ -149,16 +235,30 @@ func (o *Orchestrator) runPipeline(ctx context.Context, inc contracts.Incident) 
 		"observed_signals", len(vr.ObservedSignals),
 		"reason", vr.Reason,
 	)
+	outcomeRec.VerificationOutcome = string(vr.Outcome)
+
+	o.record(ctx, traceID, inc.ID, audit.StageVerified, string(vr.Outcome), map[string]string{
+		"outcome":          string(vr.Outcome),
+		"reason":           vr.Reason,
+		"observed_signals": fmt.Sprintf("%d", len(vr.ObservedSignals)),
+		"ref":              remediationRef,
+	})
 
 	if vr.EscalationNeeded {
 		_ = o.notifier.Escalate(ctx, inc,
 			fmt.Sprintf("verification %s (ref=%s): %s", vr.Outcome, remediationRef, vr.Reason))
+		o.record(ctx, traceID, inc.ID, audit.StageEscalated, "ok", map[string]string{
+			"reason": fmt.Sprintf("verification %s: %s", vr.Outcome, vr.Reason),
+		})
 	} else {
 		_ = o.notifier.Notify(ctx,
 			fmt.Sprintf("RECOVERED — incident %s (action=%s)", inc.ID, action.Name()),
 			fmt.Sprintf("Incident %s was remediated and verified recovered.\n\nAction: %s\nRef: %s\nOutcome: %s\nReason: %s\nSignals observed: %d",
 				inc.ID, action.Name(), remediationRef, vr.Outcome, vr.Reason, len(vr.ObservedSignals)),
 		)
+		o.record(ctx, traceID, inc.ID, audit.StageNotified, "ok", map[string]string{
+			"subject": fmt.Sprintf("RECOVERED — incident %s (action=%s)", inc.ID, action.Name()),
+		})
 	}
 	log.InfoContext(ctx, "orchestrator: pipeline complete",
 		"outcome", vr.Outcome, "ref", remediationRef)

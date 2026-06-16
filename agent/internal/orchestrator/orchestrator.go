@@ -16,10 +16,13 @@ import (
 	"log/slog"
 	"sync"
 	"sync/atomic"
+	"time"
 
+	"github.com/autosre/agent/internal/audit"
 	"github.com/autosre/agent/internal/config"
 	"github.com/autosre/agent/internal/contracts"
 	"github.com/autosre/agent/internal/correlator"
+	"github.com/autosre/agent/internal/outcome"
 	"github.com/autosre/agent/internal/policy"
 )
 
@@ -45,6 +48,11 @@ type Orchestrator struct {
 	builder  ActionBuilder
 	log      *slog.Logger
 
+	// sink records every pipeline stage event (non-fatal; nil → no-op).
+	sink audit.AuditSink
+	// outcomes posts completed pipeline summaries to the learner service (non-fatal; nil → no-op).
+	outcomes outcome.Reporter
+
 	// kill is the global halt; set via SetKillSwitch. Checked before every Apply call.
 	kill atomic.Bool
 
@@ -57,6 +65,8 @@ type Orchestrator struct {
 
 // New creates a fully wired Orchestrator. The ApplyEnabled flag in cfg is the ONLY path to
 // real GitOps commits; leaving it false (the default) is safe and the recommended starting point.
+//
+// sink and reporter may both be nil; in that case audit recording and outcome posting are disabled.
 func New(
 	cfg config.OrchestratorConfig,
 	diag DiagnosisClient,
@@ -64,6 +74,8 @@ func New(
 	notif contracts.Notifier,
 	ver Verifiable,
 	builder ActionBuilder,
+	sink audit.AuditSink,
+	reporter outcome.Reporter,
 	log *slog.Logger,
 ) *Orchestrator {
 	workers := cfg.MaxWorkers
@@ -77,12 +89,45 @@ func New(
 		notifier: notif,
 		verifier: ver,
 		builder:  builder,
+		sink:     sink,
+		outcomes: reporter,
 		log:      log,
 		sem:      make(chan struct{}, workers),
 		inFlight: inFlightRegistry{ids: make(map[string]struct{})},
 	}
 	o.kill.Store(cfg.KillSwitch)
 	return o
+}
+
+// record emits one audit event. Errors from the sink are logged and swallowed;
+// a failing sink must never break the pipeline.
+func (o *Orchestrator) record(ctx context.Context, traceID, incidentID string, stage audit.Stage, outcomeStr string, details map[string]string) {
+	if o.sink == nil {
+		return
+	}
+	ev := audit.AuditEvent{
+		Timestamp:  time.Now(),
+		TraceID:    traceID,
+		IncidentID: incidentID,
+		Stage:      stage,
+		Outcome:    outcomeStr,
+		Details:    details,
+	}
+	if err := o.sink.Record(ctx, ev); err != nil {
+		o.log.WarnContext(ctx, "audit: record failed (non-fatal)", "error", err, "stage", stage)
+	}
+}
+
+// reportOutcome posts a completed pipeline summary to the learner service.
+// Errors are logged and swallowed; a failing learner must never break the pipeline.
+func (o *Orchestrator) reportOutcome(ctx context.Context, rec outcome.Record) {
+	if o.outcomes == nil {
+		return
+	}
+	if err := o.outcomes.Report(ctx, rec); err != nil {
+		o.log.WarnContext(ctx, "outcome: report failed (non-fatal)", "error", err,
+			"incident_id", rec.IncidentID, "trace_id", rec.TraceID)
+	}
 }
 
 // Run consumes IncidentEvents from the correlator and schedules a pipeline goroutine

@@ -12,6 +12,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/autosre/agent/internal/audit"
 	"github.com/autosre/agent/internal/config"
 	"github.com/autosre/agent/internal/contracts"
 	"github.com/autosre/agent/internal/correlator"
@@ -20,6 +21,7 @@ import (
 	"github.com/autosre/agent/internal/ingestor"
 	"github.com/autosre/agent/internal/notifier"
 	"github.com/autosre/agent/internal/orchestrator"
+	"github.com/autosre/agent/internal/outcome"
 	"github.com/autosre/agent/internal/policy"
 	"github.com/autosre/agent/internal/verifier"
 )
@@ -86,7 +88,28 @@ func runRun(args []string, cfg config.Config, log *slog.Logger) int {
 		log,
 	)
 
-	orch := orchestrator.New(cfg.Orchestrator, diagClient, pol, notif, ver, builder, log)
+	// Audit sink: append-only JSONL file (no-op if disabled).
+	var auditSink audit.AuditSink = audit.NoOp{}
+	if cfg.Audit.Enabled {
+		fs, fsErr := audit.NewFileSink(cfg.Audit.FilePath)
+		if fsErr != nil {
+			log.Warn("audit: cannot open file sink; audit disabled",
+				"error", fsErr, "path", cfg.Audit.FilePath)
+		} else {
+			auditSink = fs
+			log.Info("audit: file sink opened", "path", cfg.Audit.FilePath)
+		}
+	}
+
+	// Outcome client: posts to learner POST /outcome (nil → disabled).
+	var outcomeClient outcome.Reporter
+	if cfg.Learner.Addr != "" {
+		outcomeClient = outcome.NewClient(cfg.Learner.Addr, cfg.Learner.Timeout, log)
+		log.Info("outcome: learner client configured", "addr", cfg.Learner.Addr)
+	}
+
+	orch := orchestrator.New(cfg.Orchestrator, diagClient, pol, notif, ver, builder,
+		auditSink, outcomeClient, log)
 
 	// -----------------------------------------------------------------------
 	// Kubernetes client + ingestor (best-effort; webhook still active without it)

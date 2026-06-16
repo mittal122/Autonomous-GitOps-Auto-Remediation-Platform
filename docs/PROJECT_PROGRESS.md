@@ -8,7 +8,7 @@ The Autonomous GitOps & Auto-Remediation Platform is a closed-loop SRE control p
 
 ## Current Development Phase
 
-**Prompt 7 — Orchestrator (COMPLETE)**
+**Prompt 8 — Audit + Learning (COMPLETE)**
 
 ---
 
@@ -24,6 +24,7 @@ The Autonomous GitOps & Auto-Remediation Platform is a closed-loop SRE control p
 | Prompt 5 | Verifier — read-only recovery check, fail-toward-escalation, VerificationResult | COMPLETE |
 | Prompt 6 | Notifier — Slack + PagerDuty, fail-closed approvals, signed inbound endpoint | COMPLETE |
 | Prompt 7 | Orchestrator — reconcile loop, dry-run-only default, kill switch, bounded concurrency | COMPLETE |
+| Prompt 8 | Audit + Learning — append-only JSONL audit trail, observational stats service | COMPLETE |
 
 ---
 
@@ -54,7 +55,10 @@ The Autonomous GitOps & Auto-Remediation Platform is a closed-loop SRE control p
 | Approval Registry | `agent/internal/notifier/registry.go` | Thread-safe in-memory pending approvals; keyed by request ID |
 | ActionBuilder | `agent/internal/orchestrator/builder.go` | Constructs real remediator actions from Diagnosis + proposal; defaultActionBuilder |
 | Orchestrator | `agent/internal/orchestrator/orchestrator.go` | Reconcile loop: bounded concurrency, kill switch, per-incident idempotency, graceful shutdown |
-| Pipeline | `agent/internal/orchestrator/pipeline.go` | 7-stage runPipeline: diagnose→propose→decide→check→DryRun→Apply→Verify→Notify |
+| Pipeline | `agent/internal/orchestrator/pipeline.go` | 7-stage runPipeline: diagnose→propose→decide→check→DryRun→Apply→Verify→Notify; emits audit events; posts outcomes |
+| AuditSink | `agent/internal/audit/` | Append-only JSONL event log + in-memory sink + NoOp; QueryFilter; TraceID-linked pipeline events |
+| OutcomeClient | `agent/internal/outcome/` | Posts completed pipeline outcomes to learner POST /outcome; non-fatal; advisory |
+| Learner service | `learner/learner/` | FastAPI: POST /outcome (append-only), GET /stats (read-only advisory), GET /healthz |
 
 ---
 
