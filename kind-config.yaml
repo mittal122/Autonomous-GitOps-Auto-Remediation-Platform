@@ -1,0 +1,19 @@
+apiVersion: kind.x-k8s.io/v1alpha4
+kind: Cluster
+name: autosre-dev
+nodes:
+  - role: control-plane
+    # Extra port mappings so services can be reached from localhost during development
+    extraPortMappings:
+      - containerPort: 30080
+        hostPort: 8080
+        protocol: TCP
+      - containerPort: 30090
+        hostPort: 9090
+        protocol: TCP  # Prometheus (future prompt)
+      - containerPort: 30100
+        hostPort: 3100
+        protocol: TCP  # Loki (future prompt)
+  - role: worker
+  - role: worker
+# TODO (future prompt): tune node resources when running real workloads

@@ -1,0 +1,39 @@
+run:
+  timeout: 5m
+  go: "1.22"
+
+linters:
+  enable:
+    - errcheck
+    - gosimple
+    - govet
+    - ineffassign
+    - staticcheck
+    - unused
+    - gofmt
+    - goimports
+    - misspell
+    - revive
+    - gocritic
+    - exhaustive
+  disable:
+    - depguard
+
+linters-settings:
+  gofmt:
+    simplify: true
+  goimports:
+    local-prefixes: github.com/autosre/agent
+  revive:
+    rules:
+      - name: exported
+        severity: warning
+      - name: error-return
+        severity: error
+
+issues:
+  exclude-rules:
+    # Test files may have unused exported names (interface satisfaction checks)
+    - path: _test\.go
+      linters:
+        - unused

@@ -1,0 +1,72 @@
+# Secrets & environment
+.env
+.env.local
+.env.*.local
+*.pem
+*.key
+*.p12
+*.pfx
+
+# Go
+/agent/bin/
+/agent/dist/
+*.exe
+*.test
+*.out
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+dist/
+build/
+*.egg-info/
+.eggs/
+.venv/
+venv/
+env/
+*.whl
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# Terraform
+infra/.terraform/
+infra/*.tfstate
+infra/*.tfstate.backup
+infra/.terraform.lock.hcl
+infra/terraform.tfvars
+*.tfvars
+
+# kind
+kubeconfig-kind.yaml
+
+# Helm
+charts/*.tgz
+
+# Coverage
+coverage.out
+coverage.html
+.coverage
+htmlcov/
+
+# Node / web-ui
+node_modules/
+.next/
+.nuxt/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+package-lock.json
+yarn.lock
+
+# Binaries
+agent/autosre

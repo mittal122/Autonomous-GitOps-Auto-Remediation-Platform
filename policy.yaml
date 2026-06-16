@@ -1,0 +1,101 @@
+# =============================================================================
+# AutoSRE Policy Configuration
+# =============================================================================
+# This file is the declarative policy for the decision engine.
+# Set POLICY_FILE=/path/to/policy.yaml to load it at runtime.
+#
+# Fail-closed: if this file is missing, unreadable, or invalid, the engine
+# defaults to defaultAutonomy=propose (all decisions require human approval).
+#
+# Gate evaluation order (each gate can only downgrade the verdict):
+#   1. Confidence validation  2. Autonomy level  3. Action allow-list
+#   4. Blast-radius limits    5. Protected namespaces  6. Circuit breaker
+# =============================================================================
+
+# Global default autonomy level when no per-failure-mode or per-namespace rule matches.
+# Options: observe | propose | auto-with-approval | full-auto
+# Conservative default: always require human approval.
+defaultAutonomy: propose
+
+# Minimum confidence required for an AUTO verdict (inclusive: confidence >= threshold passes).
+# Range: [0.0, 1.0]. Default: 0.90.
+confidenceThreshold: 0.90
+
+# When true, every AUTO decision sets DryRunRequired=true, meaning the action
+# must be dry-run before the real apply is permitted.
+requireDryRun: true
+
+# =============================================================================
+# Per-failure-mode rules
+# Each entry overrides the global defaultAutonomy for that failure mode and
+# specifies which action types are explicitly allowed.
+# Fail-closed: if a failure mode has no entry here, ALL actions are BLOCKED.
+# =============================================================================
+failureModeRules:
+  OOMKilled:
+    autonomy: auto-with-approval
+    allowedActions:
+      - bump-memory-limit
+
+  CrashLoopBackOff:
+    autonomy: propose
+    allowedActions:
+      - rollback-deployment
+
+  BadDeploy:
+    autonomy: propose
+    allowedActions:
+      - rollback-deployment
+      - scale-deployment
+
+  ImagePullBackOff:
+    autonomy: propose
+    allowedActions:
+      - rollback-deployment
+
+  FailedScheduling:
+    # Scheduling failures are complex; never auto-act.
+    autonomy: observe
+    allowedActions: []
+
+# =============================================================================
+# Per-namespace autonomy overrides
+# Most-restrictive-wins: if the namespace rule is stricter than the failure-mode
+# rule, the namespace rule takes precedence.
+# =============================================================================
+namespaceRules:
+  staging:
+    autonomy: auto-with-approval
+  production:
+    autonomy: propose
+
+# =============================================================================
+# Protected namespaces
+# Resources in these namespaces can never receive an AUTO verdict.
+# The verdict is downgraded to REQUIRE_APPROVAL.
+# =============================================================================
+protectedNamespaces:
+  - kube-system
+  - kube-public
+  - kube-node-lease
+  - argocd
+
+# =============================================================================
+# Blast-radius limits
+# Exceeding these limits downgrades AUTO to REQUIRE_APPROVAL.
+# =============================================================================
+blastRadius:
+  # Maximum absolute change in replica count permitted for scale-deployment AUTO.
+  maxReplicaDelta: 2
+  # Maximum memory bump factor permitted for bump-memory-limit AUTO.
+  maxMemoryBumpFactor: 2.0
+
+# =============================================================================
+# Circuit breaker
+# Trips when more than maxActionsPerWindow AUTO decisions are recorded within
+# windowSeconds. Subsequent decisions are downgraded to REQUIRE_APPROVAL
+# until the window rolls forward and clears.
+# =============================================================================
+circuitBreaker:
+  maxActionsPerWindow: 5
+  windowSeconds: 300

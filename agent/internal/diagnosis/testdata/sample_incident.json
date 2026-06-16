@@ -1,0 +1,34 @@
+{
+  "id": "inc-sample-001",
+  "signals": [
+    {
+      "id": "sig-001",
+      "source": "k8s-event",
+      "namespace": "production",
+      "resource": "payment-service",
+      "severity": "critical",
+      "kind": "Pod",
+      "reason": "OOMKilled",
+      "message": "container app in pod payment-service-abc123 was OOM killed",
+      "labels": {
+        "app": "payment-service",
+        "team": "payments"
+      }
+    },
+    {
+      "id": "sig-002",
+      "source": "k8s-event",
+      "namespace": "production",
+      "resource": "payment-service",
+      "severity": "critical",
+      "kind": "Pod",
+      "reason": "OOMKilled",
+      "message": "container app in pod payment-service-def456 was OOM killed (2nd instance)",
+      "labels": {
+        "app": "payment-service"
+      }
+    }
+  ],
+  "affected_resources": ["payment-service"],
+  "severity": "critical"
+}
