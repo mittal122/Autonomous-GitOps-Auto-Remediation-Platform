@@ -103,6 +103,13 @@ export interface KillSwitchResponse {
   operator: string
 }
 
+export interface AuditListResponse {
+  events: AuditEvent[]
+  count: number
+  limit: number
+  offset: number
+}
+
 // ---------------------------------------------------------------------------
 // API calls
 // ---------------------------------------------------------------------------
@@ -120,4 +127,12 @@ export const api = {
   getStats: () => get<StatsResponse>('/stats'),
   setKillSwitch: (engaged: boolean, reason: string) =>
     post<KillSwitchResponse>('/control/kill-switch', { engaged, reason }),
+  listAudit: (params: { incidentId?: string; stage?: string; limit?: number; offset?: number } = {}) => {
+    const q = new URLSearchParams()
+    if (params.incidentId) q.set('incident_id', params.incidentId)
+    if (params.stage) q.set('stage', params.stage)
+    if (params.limit != null) q.set('limit', String(params.limit))
+    if (params.offset != null) q.set('offset', String(params.offset))
+    return get<AuditListResponse>(`/audit?${q}`)
+  },
 }
