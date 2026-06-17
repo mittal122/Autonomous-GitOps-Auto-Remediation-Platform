@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/autosre/agent/internal/config"
+	"github.com/coreos/go-oidc/v3/oidc"
 )
 
 // Role is the user's authorisation level.
@@ -57,36 +58,56 @@ func highestRole(roles []string) Role {
 // accessible without credentials. This is logged loudly so no one runs it in production
 // without noticing.
 //
-// When OIDC is enabled, the token is decoded and the roles claim is extracted.
-// IMPORTANT: in production the signature MUST be verified against the OIDC provider's
-// JWK endpoint. The current implementation decodes the payload only — suitable for
-// single-cluster dev/staging with a trusted network. Add `coreos/go-oidc` for full
-// cryptographic verification (see TODO below).
+// When OIDC is enabled with a valid issuerURL, tokens are cryptographically verified
+// against the OIDC provider's JWK endpoint using github.com/coreos/go-oidc/v3.
+//
+// When OIDC is enabled but issuerURL is empty (unsafe fallback for staging/tests),
+// only the base64-decoded payload is read — the signature is NOT checked.
 type authMiddleware struct {
 	enabled    bool
 	issuerURL  string
 	clientID   string
 	rolesClaim string
+	verifier   *oidc.IDTokenVerifier // non-nil when OIDC provider is reachable
 	log        *slog.Logger
 }
 
 // newAuthMiddleware constructs the auth middleware from config.
-func newAuthMiddleware(_ context.Context, cfg config.APIConfig, log *slog.Logger) *authMiddleware {
+// When OIDCEnabled=true and OIDCIssuerURL is non-empty, it attempts to connect to
+// the OIDC provider to fetch the JWK set. A connection failure is logged but does
+// not prevent startup — the middleware falls back to the unsafe base64 decode path
+// and logs a prominent warning on every request.
+func newAuthMiddleware(ctx context.Context, cfg config.APIConfig, log *slog.Logger) *authMiddleware {
 	if !cfg.OIDCEnabled {
 		log.Warn("api: OIDC auth DISABLED — all API requests are granted viewer access (dev mode)",
 			"hint", "set API_OIDC_ENABLED=true and configure API_OIDC_ISSUER_URL in production")
 		return &authMiddleware{enabled: false, log: log}
 	}
-	if cfg.OIDCIssuerURL == "" {
-		log.Error("api: API_OIDC_ENABLED=true but API_OIDC_ISSUER_URL is empty — auth DISABLED (fail-open risk)")
-	}
-	return &authMiddleware{
-		enabled:    cfg.OIDCEnabled,
+
+	m := &authMiddleware{
+		enabled:    true,
 		issuerURL:  cfg.OIDCIssuerURL,
 		clientID:   cfg.OIDCClientID,
 		rolesClaim: cfg.OIDCRolesClaimKey,
 		log:        log,
 	}
+
+	if cfg.OIDCIssuerURL == "" {
+		log.Error("api: API_OIDC_ENABLED=true but API_OIDC_ISSUER_URL is empty — " +
+			"JWT signatures NOT verified (unsafe base64 decode mode)")
+		return m
+	}
+
+	provider, err := oidc.NewProvider(ctx, cfg.OIDCIssuerURL)
+	if err != nil {
+		log.Error("api: OIDC provider unreachable — JWT signatures NOT verified (unsafe base64 fallback)",
+			"issuer", cfg.OIDCIssuerURL, "error", err)
+		return m
+	}
+
+	m.verifier = provider.Verifier(&oidc.Config{ClientID: cfg.OIDCClientID})
+	log.Info("api: OIDC signature verification enabled", "issuer", cfg.OIDCIssuerURL)
+	return m
 }
 
 // enforce wraps next, requiring at least minRole from the caller.
@@ -113,7 +134,7 @@ func (a *authMiddleware) enforce(next http.Handler, minRole Role) http.Handler {
 			return
 		}
 
-		role, err := a.extractRole(raw)
+		role, err := a.extractRole(r.Context(), raw)
 		if err != nil {
 			a.log.Warn("api: token extraction failed", "error", err, "remote", r.RemoteAddr)
 			jsonError(w, "invalid or expired token", http.StatusUnauthorized)
@@ -140,22 +161,44 @@ func extractBearer(r *http.Request) string {
 	return strings.TrimPrefix(hdr, "Bearer ")
 }
 
-// extractRole decodes the JWT payload and extracts the roles claim.
+// extractRole validates the raw JWT and extracts the roles claim.
 //
-// TODO: replace the base64 decode with a cryptographic signature check using
-//       github.com/coreos/go-oidc/v3/oidc when the OIDC provider is configured.
-//       The current implementation trusts the token payload without verifying the
-//       signature — only safe on a private, trusted network. Wire:
-//         provider, _ := oidc.NewProvider(ctx, issuerURL)
-//         verifier := provider.Verifier(&oidc.Config{ClientID: clientID})
-//         idToken, err := verifier.Verify(ctx, raw)
-//         idToken.Claims(&claims)
-func (a *authMiddleware) extractRole(raw string) (Role, error) {
+// When a.verifier is set (OIDC provider reachable at startup), the token signature
+// is cryptographically verified using the provider's JWK set.
+//
+// When a.verifier is nil (no issuerURL or provider unreachable), the payload is
+// base64-decoded without signature verification — safe only on a private, trusted
+// network (dev/staging). A warning is logged on every call in this mode.
+func (a *authMiddleware) extractRole(ctx context.Context, raw string) (Role, error) {
+	if a.verifier != nil {
+		return a.extractRoleOIDC(ctx, raw)
+	}
+	if a.issuerURL != "" {
+		a.log.Warn("api: JWT signature NOT verified — OIDC provider was unavailable at startup")
+	}
+	return a.extractRoleUnsafe(raw)
+}
+
+// extractRoleOIDC verifies the JWT signature via the OIDC provider and extracts roles.
+func (a *authMiddleware) extractRoleOIDC(ctx context.Context, raw string) (Role, error) {
+	idToken, err := a.verifier.Verify(ctx, raw)
+	if err != nil {
+		return "", fmt.Errorf("OIDC token verification: %w", err)
+	}
+	var claims map[string]any
+	if err := idToken.Claims(&claims); err != nil {
+		return "", fmt.Errorf("extract claims: %w", err)
+	}
+	return rolesFromClaims(claims, a.rolesClaim), nil
+}
+
+// extractRoleUnsafe decodes the JWT payload without verifying the signature.
+// Only safe on a private, trusted network.
+func (a *authMiddleware) extractRoleUnsafe(raw string) (Role, error) {
 	parts := strings.Split(raw, ".")
 	if len(parts) != 3 {
 		return "", fmt.Errorf("not a JWT (expected 3 parts)")
 	}
-	// Pad the base64url-encoded payload.
 	payload := parts[1]
 	if r := len(payload) % 4; r != 0 {
 		payload += strings.Repeat("=", 4-r)
@@ -164,17 +207,20 @@ func (a *authMiddleware) extractRole(raw string) (Role, error) {
 	if err != nil {
 		return "", fmt.Errorf("JWT payload decode: %w", err)
 	}
-
 	var claims map[string]any
 	if err := json.Unmarshal(decoded, &claims); err != nil {
 		return "", fmt.Errorf("JWT claims unmarshal: %w", err)
 	}
+	return rolesFromClaims(claims, a.rolesClaim), nil
+}
 
-	raw2, ok := claims[a.rolesClaim]
+// rolesFromClaims extracts the highest role from the given claims map.
+func rolesFromClaims(claims map[string]any, claimKey string) Role {
+	raw, ok := claims[claimKey]
 	if !ok {
-		return RoleViewer, nil // absent claim → minimum role
+		return RoleViewer
 	}
-	switch v := raw2.(type) {
+	switch v := raw.(type) {
 	case []any:
 		roles := make([]string, 0, len(v))
 		for _, r := range v {
@@ -182,11 +228,11 @@ func (a *authMiddleware) extractRole(raw string) (Role, error) {
 				roles = append(roles, s)
 			}
 		}
-		return highestRole(roles), nil
+		return highestRole(roles)
 	case string:
-		return highestRole([]string{v}), nil
+		return highestRole([]string{v})
 	default:
-		return RoleViewer, nil
+		return RoleViewer
 	}
 }
 

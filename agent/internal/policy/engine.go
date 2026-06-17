@@ -16,6 +16,7 @@ import (
 	"strings"
 
 	"github.com/autosre/agent/internal/contracts"
+	"github.com/autosre/agent/internal/store"
 )
 
 // Engine evaluates RemediationProposals against a loaded PolicyConfig.
@@ -26,14 +27,30 @@ type Engine struct {
 	log *slog.Logger
 }
 
+// Option is a functional option for Engine.
+type Option func(*Engine)
+
+// WithStore injects a persistent store so circuit-breaker events survive restarts.
+// The circuit-breaker is hydrated from the store immediately when this option is applied.
+func WithStore(s store.Store) Option {
+	return func(e *Engine) {
+		e.cb.store = s
+		e.cb.hydrate()
+	}
+}
+
 // New creates a policy Engine. If cfg was loaded with an error, the engine
 // still operates safely using the fail-closed default config.
-func New(cfg PolicyConfig, log *slog.Logger) *Engine {
-	return &Engine{
+func New(cfg PolicyConfig, log *slog.Logger, opts ...Option) *Engine {
+	e := &Engine{
 		cfg: cfg,
-		cb:  newCircuitBreaker(cfg.CircuitBreaker),
+		cb:  newCircuitBreaker(cfg.CircuitBreaker, nil),
 		log: log,
 	}
+	for _, opt := range opts {
+		opt(e)
+	}
+	return e
 }
 
 // CircuitBreakerTripped reports whether the circuit breaker has fired.

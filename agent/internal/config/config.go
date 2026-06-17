@@ -36,6 +36,22 @@ type RemediatorConfig struct {
 	DefaultDryRun bool // env: REMEDIATION_DRY_RUN
 	// MemoryBumpFactor is the multiplier used by BumpMemoryLimit. Default: 1.5.
 	MemoryBumpFactor float64 // env: MEMORY_BUMP_FACTOR
+	// RemoteURL is the git remote URL to push commits to (e.g. "https://github.com/org/repo.git").
+	// Empty string disables push; commits are local only (not visible to ArgoCD).
+	RemoteURL string // env: GIT_REMOTE_URL
+	// AuthToken is a GitHub/GitLab personal-access token for HTTPS push auth.
+	// Used when RemoteURL is an https:// URL. Empty string → no HTTPS auth.
+	AuthToken string // env: GIT_TOKEN
+	// SSHKeyPath is the path to a PEM-encoded private key for SSH push auth.
+	// Used when RemoteURL is an ssh:// or git@ URL. Empty string → no SSH key auth.
+	SSHKeyPath string // env: GIT_SSH_KEY_PATH
+}
+
+// StoreConfig controls the SQLite persistent store.
+type StoreConfig struct {
+	// DSN is the SQLite data source name.
+	// Default: "file:./data/autosre.db?_journal_mode=WAL"
+	DSN string // env: STORE_DSN
 }
 
 // VerifierConfig holds tuning knobs for the post-remediation recovery checker.
@@ -186,6 +202,9 @@ type Config struct {
 	// Web API + Auth
 	API APIConfig
 
+	// Persistent store
+	Store StoreConfig
+
 	// Logging
 	LogLevel string // "debug", "info", "warn", "error"; default "info"
 }
@@ -211,6 +230,9 @@ func Load() Config {
 			Branch:           getEnv("GIT_BRANCH", "main"),
 			DefaultDryRun:    getEnv("REMEDIATION_DRY_RUN", "true") != "false",
 			MemoryBumpFactor: getFloat("MEMORY_BUMP_FACTOR", 1.5),
+			RemoteURL:        getEnv("GIT_REMOTE_URL", ""),
+			AuthToken:        getEnv("GIT_TOKEN", ""),
+			SSHKeyPath:       getEnv("GIT_SSH_KEY_PATH", ""),
 		},
 		Diagnoser: DiagnoserConfig{
 			Addr:    getEnv("DIAGNOSER_ADDR", "http://localhost:8001"),
@@ -259,6 +281,9 @@ func Load() Config {
 			OIDCClientID:      getEnv("API_OIDC_CLIENT_ID", ""),
 			OIDCRolesClaimKey: getEnv("API_OIDC_ROLES_CLAIM", "roles"),
 			WebUIDir:          getEnv("WEB_UI_DIR", ""),
+		},
+		Store: StoreConfig{
+			DSN: getEnv("STORE_DSN", "file:./data/autosre.db?_journal_mode=WAL"),
 		},
 	}
 }

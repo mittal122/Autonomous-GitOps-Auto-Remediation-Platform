@@ -24,6 +24,7 @@ import (
 	"github.com/autosre/agent/internal/orchestrator"
 	"github.com/autosre/agent/internal/outcome"
 	"github.com/autosre/agent/internal/policy"
+	"github.com/autosre/agent/internal/store"
 	"github.com/autosre/agent/internal/verifier"
 )
 
@@ -54,34 +55,68 @@ func runRun(args []string, cfg config.Config, log *slog.Logger) int {
 	defer cancel()
 
 	// -----------------------------------------------------------------------
+	// Persistent store (SQLite) — open before wiring other components
+	// -----------------------------------------------------------------------
+	var sqliteStore store.Store
+	if err := os.MkdirAll("./data", 0o755); err != nil {
+		log.Warn("store: cannot create data dir", "error", err)
+	}
+	if s, openErr := store.Open(cfg.Store.DSN); openErr != nil {
+		log.Warn("store: SQLite unavailable — running without persistence",
+			"dsn", cfg.Store.DSN, "error", openErr)
+	} else {
+		sqliteStore = s
+		log.Info("store: SQLite opened", "dsn", cfg.Store.DSN)
+		defer s.Close()
+	}
+
+	// -----------------------------------------------------------------------
 	// Components
 	// -----------------------------------------------------------------------
 
 	gw := gitwriter.New(gitwriter.Config{
-		RepoPath: cfg.Remediator.RepoPath,
-		BotName:  cfg.Remediator.BotName,
-		BotEmail: cfg.Remediator.BotEmail,
-		Branch:   cfg.Remediator.Branch,
+		RepoPath:   cfg.Remediator.RepoPath,
+		BotName:    cfg.Remediator.BotName,
+		BotEmail:   cfg.Remediator.BotEmail,
+		Branch:     cfg.Remediator.Branch,
+		RemoteURL:  cfg.Remediator.RemoteURL,
+		AuthToken:  cfg.Remediator.AuthToken,
+		SSHKeyPath: cfg.Remediator.SSHKeyPath,
 	}, log)
+	if cfg.Remediator.RemoteURL == "" {
+		log.Warn("gitwriter: GIT_REMOTE_URL not set — commits are local only (ArgoCD will not sync)")
+	}
 
 	polCfg, err := policy.LoadPolicyFile(cfg.Orchestrator.PolicyFile)
 	if err != nil {
 		log.Warn("policy: using fail-closed defaults", "reason", err)
 	}
-	pol := policy.New(polCfg, log)
+	polOpts := []policy.Option{}
+	if sqliteStore != nil {
+		polOpts = append(polOpts, policy.WithStore(sqliteStore))
+	}
+	pol := policy.New(polCfg, log, polOpts...)
 
 	diagClient := diagnosis.NewClient(diagnosis.Config{
 		Addr:    cfg.Diagnoser.Addr,
 		Timeout: cfg.Diagnoser.Timeout,
 	})
 
-	notif := notifier.New(cfg.Notifier, log)
+	notifOpts := []notifier.Option{}
+	if sqliteStore != nil {
+		notifOpts = append(notifOpts, notifier.WithStore(sqliteStore))
+	}
+	notif := notifier.New(cfg.Notifier, log, notifOpts...)
 
+	corOpts := []correlator.Option{}
+	if sqliteStore != nil {
+		corOpts = append(corOpts, correlator.WithStore(sqliteStore))
+	}
 	cor := correlator.New(correlator.Config{
 		CorrelationWindow: cfg.Correlator.CorrelationWindow,
 		ResolveWindow:     cfg.Correlator.ResolveWindow,
 		DedupWindow:       cfg.Correlator.DedupWindow,
-	}, log)
+	}, log, corOpts...)
 
 	ver := verifier.New(cfg.Verifier, verifier.NewCorrelatorSource(cor), log)
 

@@ -25,6 +25,7 @@ import (
 	"time"
 
 	"github.com/autosre/agent/internal/contracts"
+	"github.com/autosre/agent/internal/store"
 	"github.com/autosre/agent/internal/uid"
 )
 
@@ -110,22 +111,39 @@ type Correlator struct {
 	cfg     Config
 	log     *slog.Logger
 	events  chan IncidentEvent
+	store   store.Store // nil → in-memory only (no persistence)
+}
+
+// Option is a functional option for Correlator.
+type Option func(*Correlator)
+
+// WithStore injects a persistent store. When set, every incident state change is
+// written through to the store and open incidents are loaded on Run startup.
+func WithStore(s store.Store) Option {
+	return func(c *Correlator) { c.store = s }
 }
 
 // New returns a ready-to-use Correlator.
-func New(cfg Config, log *slog.Logger) *Correlator {
-	return &Correlator{
+func New(cfg Config, log *slog.Logger, opts ...Option) *Correlator {
+	c := &Correlator{
 		entries: make(map[string]*entry),
 		cfg:     cfg,
 		log:     log,
 		events:  make(chan IncidentEvent, eventBufSize),
 	}
+	for _, opt := range opts {
+		opt(c)
+	}
+	return c
 }
 
 // Run reads Signals from the given channel, processes each one, and runs the
 // resolver loop until ctx is cancelled. It closes the Events() channel on exit.
+// If a store is configured, open incidents are loaded from it before the first
+// signal is processed.
 func (c *Correlator) Run(ctx context.Context, signals <-chan contracts.Signal) {
 	defer close(c.events)
+	c.hydrateFromStore(ctx)
 	go c.runResolver(ctx)
 	for {
 		select {
@@ -137,6 +155,30 @@ func (c *Correlator) Run(ctx context.Context, signals <-chan contracts.Signal) {
 			}
 			c.Process(sig)
 		}
+	}
+}
+
+// hydrateFromStore loads open incidents from the store into the in-memory map.
+// Called once at startup; safe to call with a nil store.
+func (c *Correlator) hydrateFromStore(ctx context.Context) {
+	if c.store == nil {
+		return
+	}
+	records, err := c.store.LoadOpenIncidents(ctx)
+	if err != nil {
+		c.log.Error("correlator: failed to load open incidents from store", "error", err)
+		return
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	for _, rec := range records {
+		c.entries[rec.CorrelationKey] = &entry{
+			incident:    rec.Incident,
+			seenReasons: make(map[string]time.Time), // dedup state is not persisted; accept some duplicates after restart
+		}
+	}
+	if len(records) > 0 {
+		c.log.Info("correlator: hydrated open incidents from store", "count", len(records))
 	}
 }
 
@@ -170,6 +212,7 @@ func (c *Correlator) Process(sig contracts.Signal) {
 			"reason", sig.Reason,
 			"severity", inc.Severity,
 		)
+		c.upsertStore(inc, key)
 		c.emit(IncidentEvent{Kind: EventOpened, Incident: inc})
 		return
 	}
@@ -182,6 +225,7 @@ func (c *Correlator) Process(sig contracts.Signal) {
 		e.seenReasons = map[string]time.Time{sig.Reason: now}
 		e.incident.Signals = []contracts.Signal{sig}
 		c.log.Info("incident reopened", "id", e.incident.ID, "key", key)
+		c.upsertStore(e.incident, key)
 		c.emit(IncidentEvent{Kind: EventOpened, Incident: e.incident})
 		return
 	}
@@ -214,6 +258,7 @@ func (c *Correlator) Process(sig contracts.Signal) {
 		"reason", sig.Reason,
 		"total_signals", len(e.incident.Signals),
 	)
+	c.upsertStore(e.incident, key)
 	c.emit(IncidentEvent{Kind: EventUpdated, Incident: e.incident})
 }
 
@@ -239,6 +284,7 @@ func (c *Correlator) ResolveStale() {
 				"duration", duration,
 				"total_signals", len(e.incident.Signals),
 			)
+			c.upsertStore(e.incident, key)
 			c.emit(IncidentEvent{Kind: EventClosed, Incident: e.incident})
 		}
 	}
@@ -341,6 +387,17 @@ func contains(slice []string, val string) bool {
 		}
 	}
 	return false
+}
+
+// upsertStore persists an incident to the store if one is configured.
+// Must be called while holding c.mu (uses a background context to avoid timeout propagation).
+func (c *Correlator) upsertStore(inc contracts.Incident, correlationKey string) {
+	if c.store == nil {
+		return
+	}
+	if err := c.store.UpsertIncident(context.Background(), inc, correlationKey); err != nil {
+		c.log.Error("correlator: failed to persist incident", "id", inc.ID, "error", err)
+	}
 }
 
 // emit writes an event to the buffered events channel, dropping and logging if full.

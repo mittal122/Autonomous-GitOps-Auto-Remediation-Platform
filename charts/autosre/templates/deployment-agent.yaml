@@ -63,6 +63,22 @@ spec:
             - name: WEB_UI_DIR
               value: {{ .Values.agent.webUIDir | quote }}
             {{- end }}
+            {{- if .Values.agent.git.remoteURL }}
+            - name: GIT_REMOTE_URL
+              value: {{ .Values.agent.git.remoteURL | quote }}
+            {{- end }}
+            {{- if .Values.agent.git.credentialsSecret }}
+            - name: GIT_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.agent.git.credentialsSecret }}
+                  key: token
+                  optional: true
+            - name: GIT_SSH_KEY_PATH
+              value: /etc/autosre/git-ssh/id_ed25519
+            {{- end }}
+            - name: STORE_DSN
+              value: {{ .Values.agent.storeDSN | default "file:./data/autosre.db?_journal_mode=WAL" | quote }}
             {{- with .Values.agent.env }}
             {{- toYaml . | nindent 12 }}
             {{- end }}
@@ -77,6 +93,11 @@ spec:
             {{- if .Values.agent.persistence.enabled }}
             - name: data
               mountPath: /data
+            {{- end }}
+            {{- if .Values.agent.git.credentialsSecret }}
+            - name: git-ssh
+              mountPath: /etc/autosre/git-ssh
+              readOnly: true
             {{- end }}
           livenessProbe:
             httpGet:
@@ -100,6 +121,12 @@ spec:
         - name: data
           persistentVolumeClaim:
             claimName: {{ include "autosre.fullname" . }}-agent-data
+        {{- end }}
+        {{- if .Values.agent.git.credentialsSecret }}
+        - name: git-ssh
+          secret:
+            secretName: {{ .Values.agent.git.credentialsSecret }}
+            defaultMode: 0400
         {{- end }}
 ---
 {{- if .Values.agent.persistence.enabled }}

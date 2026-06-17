@@ -7,6 +7,7 @@ import (
 
 	"github.com/autosre/agent/internal/config"
 	"github.com/autosre/agent/internal/contracts"
+	"github.com/autosre/agent/internal/store"
 )
 
 // CompositeNotifier implements contracts.Notifier by routing:
@@ -19,9 +20,18 @@ type CompositeNotifier struct {
 	log   *slog.Logger
 }
 
+// Option is a functional option for CompositeNotifier.
+type Option func(*CompositeNotifier)
+
+// WithStore injects a persistent store so that approval requests survive restarts.
+// Pending approvals that expire while the agent is down are treated as DENIED (fail-closed).
+func WithStore(s store.Store) Option {
+	return func(c *CompositeNotifier) { c.slack.reg.store = s }
+}
+
 // New returns a CompositeNotifier configured from cfg.
 // httpClient may be nil; a default client is used.
-func New(cfg config.NotifierConfig, log *slog.Logger) *CompositeNotifier {
+func New(cfg config.NotifierConfig, log *slog.Logger, opts ...Option) *CompositeNotifier {
 	httpClient := &http.Client{Timeout: cfg.SendTimeout}
 
 	slackCfg := SlackConfig{
@@ -33,11 +43,15 @@ func New(cfg config.NotifierConfig, log *slog.Logger) *CompositeNotifier {
 		MaxRetries:      cfg.MaxRetries,
 	}
 
-	return &CompositeNotifier{
+	c := &CompositeNotifier{
 		slack: NewSlackNotifier(slackCfg, httpClient, log),
 		pd:    NewPagerDutyClient(cfg.PagerDutyRoutingKey, httpClient, cfg.MaxRetries, log),
 		log:   log,
 	}
+	for _, opt := range opts {
+		opt(c)
+	}
+	return c
 }
 
 func (c *CompositeNotifier) Notify(ctx context.Context, subject, body string) error {

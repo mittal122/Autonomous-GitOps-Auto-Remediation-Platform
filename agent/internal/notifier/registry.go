@@ -1,10 +1,12 @@
 package notifier
 
 import (
+	"context"
 	"sync"
 	"time"
 
 	"github.com/autosre/agent/internal/contracts"
+	"github.com/autosre/agent/internal/store"
 )
 
 // PendingApproval is an exported summary of an in-flight approval request.
@@ -30,6 +32,7 @@ type pendingEntry struct {
 type registry struct {
 	mu      sync.Mutex
 	entries map[string]*pendingEntry
+	store   store.Store // nil → in-memory only
 }
 
 func newRegistry() *registry {
@@ -39,17 +42,31 @@ func newRegistry() *registry {
 // register creates a pending entry for requestID with the given timeout.
 // Returns a receive-only channel that is closed or written when resolved.
 // Caller must call remove() in a defer to clean up.
-func (r *registry) register(id string, proposal contracts.RemediationProposal, timeout time.Duration) <-chan contracts.ApprovalResult {
+func (r *registry) register(incidentID, id string, proposal contracts.RemediationProposal, timeout time.Duration) <-chan contracts.ApprovalResult {
 	ch := make(chan contracts.ApprovalResult, 1)
 	now := time.Now()
+	deadline := now.Add(timeout)
 	r.mu.Lock()
 	r.entries[id] = &pendingEntry{
 		ch:          ch,
-		deadline:    now.Add(timeout),
+		deadline:    deadline,
 		requestedAt: now,
 		proposal:    proposal,
 	}
 	r.mu.Unlock()
+	if r.store != nil {
+		rec := store.ApprovalRecord{
+			RequestID:   id,
+			IncidentID:  incidentID,
+			Proposal:    proposal,
+			RequestedAt: now,
+			ExpiresAt:   deadline,
+		}
+		if err := r.store.UpsertApproval(context.Background(), rec); err != nil {
+			// Non-fatal: approval is tracked in-memory; log and continue.
+			_ = err
+		}
+	}
 	return ch
 }
 
@@ -65,6 +82,10 @@ func (r *registry) resolve(id string, result contracts.ApprovalResult) bool {
 	delete(r.entries, id)
 	r.mu.Unlock()
 
+	if r.store != nil {
+		_ = r.store.DeleteApproval(context.Background(), id)
+	}
+
 	select {
 	case e.ch <- result:
 	default:
@@ -79,6 +100,9 @@ func (r *registry) remove(id string) {
 	r.mu.Lock()
 	delete(r.entries, id)
 	r.mu.Unlock()
+	if r.store != nil {
+		_ = r.store.DeleteApproval(context.Background(), id)
+	}
 }
 
 // isExpired reports whether the pending request for id is past its deadline.

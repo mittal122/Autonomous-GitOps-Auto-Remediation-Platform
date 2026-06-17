@@ -132,17 +132,3 @@ resource "kubernetes_config_map_v1_data" "aws_auth" {
   depends_on = [aws_eks_cluster.this]
 }
 
-# ---------------------------------------------------------------------------
-# Expose cluster info
-# ---------------------------------------------------------------------------
-locals {
-  module = {
-    eks = {
-      cluster_endpoint                    = aws_eks_cluster.this.endpoint
-      cluster_certificate_authority_data  = aws_eks_cluster.this.certificate_authority[0].data
-      cluster_name                        = aws_eks_cluster.this.name
-      cluster_oidc_issuer_url             = aws_eks_cluster.this.identity[0].oidc[0].issuer
-      oidc_provider_arn                   = aws_iam_openid_connect_provider.eks.arn
-    }
-  }
-}

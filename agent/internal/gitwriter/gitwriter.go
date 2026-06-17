@@ -10,15 +10,21 @@ import (
 	"time"
 
 	"github.com/go-git/go-git/v5"
+	gitconfig "github.com/go-git/go-git/v5/config"
 	"github.com/go-git/go-git/v5/plumbing/object"
+	gogithttp "github.com/go-git/go-git/v5/plumbing/transport/http"
+	gogitssh "github.com/go-git/go-git/v5/plumbing/transport/ssh"
 )
 
 // Config holds settings for the shared git writer.
 type Config struct {
-	RepoPath string // absolute path to the local gitops repository clone
-	BotName  string // git commit author name
-	BotEmail string // git commit author email
-	Branch   string // branch to commit on (e.g. "main")
+	RepoPath   string // absolute path to the local gitops repository clone
+	BotName    string // git commit author name
+	BotEmail   string // git commit author email
+	Branch     string // branch to commit on (e.g. "main")
+	RemoteURL  string // remote URL to push to; empty disables push (env: GIT_REMOTE_URL)
+	AuthToken  string // HTTPS personal-access token; used when RemoteURL is an https:// URL (env: GIT_TOKEN)
+	SSHKeyPath string // path to PEM private key; used when RemoteURL is an ssh:// or git@ URL (env: GIT_SSH_KEY_PATH)
 }
 
 // Result is returned by EditField and carries everything the caller needs
@@ -231,7 +237,49 @@ func (w *Writer) commit(
 		return "", fmt.Errorf("git commit: %w", err)
 	}
 
-	return hash.String(), nil
+	sha := hash.String()
+
+	if w.cfg.RemoteURL != "" {
+		if pushErr := w.push(ctx, repo); pushErr != nil {
+			_ = os.WriteFile(absPath, original, 0o644)
+			return "", fmt.Errorf("git push (commit %s): %w", sha, pushErr)
+		}
+	}
+
+	return sha, nil
+}
+
+// push pushes the configured branch to the remote. It selects auth based on
+// whether an AuthToken (HTTPS) or SSHKeyPath (SSH) is configured.
+func (w *Writer) push(ctx context.Context, repo *git.Repository) error {
+	refSpec := gitconfig.RefSpec(fmt.Sprintf(
+		"refs/heads/%s:refs/heads/%s", w.cfg.Branch, w.cfg.Branch,
+	))
+	opts := &git.PushOptions{
+		RemoteName: "origin",
+		RefSpecs:   []gitconfig.RefSpec{refSpec},
+		RemoteURL:  w.cfg.RemoteURL,
+	}
+
+	switch {
+	case w.cfg.AuthToken != "":
+		opts.Auth = &gogithttp.BasicAuth{
+			Username: "x-token", // any non-empty string works for token auth
+			Password: w.cfg.AuthToken,
+		}
+	case w.cfg.SSHKeyPath != "":
+		auth, err := gogitssh.NewPublicKeysFromFile("git", w.cfg.SSHKeyPath, "")
+		if err != nil {
+			return fmt.Errorf("load SSH key %s: %w", w.cfg.SSHKeyPath, err)
+		}
+		opts.Auth = auth
+	}
+
+	err := repo.PushContext(ctx, opts)
+	if err == git.NoErrAlreadyUpToDate {
+		return nil
+	}
+	return err
 }
 
 // buildCommitMessage produces a conventional-commit message for an automated edit.
