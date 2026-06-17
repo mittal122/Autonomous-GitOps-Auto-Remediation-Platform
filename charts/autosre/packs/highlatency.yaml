@@ -1,0 +1,24 @@
+name: highlatency
+version: "1.0.0"
+description: |
+  Remediation rules for high-latency incidents caused by under-provisioning.
+  Scale-up via scale-deployment or HPA adjustment via patch-hpa.
+
+rules:
+  HighLatency:
+    autonomy: propose
+    allowedActions:
+      - scale-deployment
+      - patch-hpa
+
+  P99LatencyHigh:
+    autonomy: propose
+    allowedActions:
+      - scale-deployment
+      - patch-hpa
+
+  PodNotReady:
+    autonomy: propose
+    allowedActions:
+      - scale-deployment
+      - rollback-deployment

@@ -1,0 +1,26 @@
+name: oomkilled
+version: "1.0.0"
+description: |
+  Remediation rules for OOM (Out of Memory) incidents.
+  bump-memory-limit is the reactive action (applied immediately after OOM).
+  right-size-memory is the proactive FinOps action (sets memory to observed usage).
+  Both are in the allow-list; the orchestrator picks based on the diagnosis proposal.
+
+rules:
+  OOMKilled:
+    autonomy: propose
+    allowedActions:
+      - bump-memory-limit
+      - right-size-memory
+
+  MemoryPressure:
+    autonomy: propose
+    allowedActions:
+      - bump-memory-limit
+      - right-size-memory
+
+  ContainerOOMKilled:
+    autonomy: propose
+    allowedActions:
+      - bump-memory-limit
+      - right-size-memory

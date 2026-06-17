@@ -1,0 +1,22 @@
+name: highcpu
+version: "1.0.0"
+description: |
+  FinOps right-sizing rules for over-provisioned or throttled CPU.
+  CPUThrottle means the container is being throttled (limit too low relative to usage).
+  HighCPURequest means the requested CPU far exceeds actual usage (cost optimization).
+
+rules:
+  CPUThrottle:
+    autonomy: propose
+    allowedActions:
+      - right-size-cpu
+
+  HighCPURequest:
+    autonomy: propose
+    allowedActions:
+      - right-size-cpu
+
+  CPUOverProvisioned:
+    autonomy: propose
+    allowedActions:
+      - right-size-cpu

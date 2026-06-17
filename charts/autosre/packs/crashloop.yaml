@@ -1,0 +1,24 @@
+name: crashloop
+version: "1.0.0"
+description: |
+  Remediation rules for CrashLoopBackOff incidents.
+  Attempts a controlled scale-up then rollback if a bad image caused the loop.
+  Autonomy is "propose" by default so a human reviews before action is taken.
+  Override with autonomy: full-auto in your base policy.yaml for trusted namespaces.
+
+rules:
+  CrashLoopBackOff:
+    autonomy: propose
+    allowedActions:
+      - scale-deployment
+      - rollback-deployment
+
+  ContainerCannotRun:
+    autonomy: propose
+    allowedActions:
+      - rollback-deployment
+
+  CreateContainerError:
+    autonomy: propose
+    allowedActions:
+      - rollback-deployment
