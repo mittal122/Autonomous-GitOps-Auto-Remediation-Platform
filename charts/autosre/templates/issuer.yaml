@@ -1,0 +1,56 @@
+{{- if .Values.internalTLS.enabled }}
+# ---------------------------------------------------------------------------
+# Self-signed bootstrap issuer — used only to sign the in-cluster CA certificate.
+# ---------------------------------------------------------------------------
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: {{ include "autosre.fullname" . }}-selfsigned
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "autosre.labels" . | nindent 4 }}
+spec:
+  selfSigned: {}
+---
+# ---------------------------------------------------------------------------
+# In-cluster CA certificate (ECDSA P-256, 10-year validity).
+# The private key is stored in the Secret referenced below.
+# ---------------------------------------------------------------------------
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: {{ include "autosre.fullname" . }}-ca
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "autosre.labels" . | nindent 4 }}
+spec:
+  isCA: true
+  commonName: autosre-internal-ca
+  subject:
+    organizations:
+      - autosre
+  secretName: {{ include "autosre.fullname" . }}-ca-tls
+  duration: 87600h   # 10 years
+  renewBefore: 720h  # 30 days
+  privateKey:
+    algorithm: ECDSA
+    size: 256
+  issuerRef:
+    name: {{ include "autosre.fullname" . }}-selfsigned
+    kind: Issuer
+    group: cert-manager.io
+---
+# ---------------------------------------------------------------------------
+# CA-backed issuer — signs individual service certificates.
+# ---------------------------------------------------------------------------
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: {{ include "autosre.fullname" . }}-ca-issuer
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "autosre.labels" . | nindent 4 }}
+spec:
+  ca:
+    secretName: {{ include "autosre.fullname" . }}-ca-tls
+{{- end }}

@@ -1,0 +1,97 @@
+{{- if .Values.internalTLS.enabled }}
+# ---------------------------------------------------------------------------
+# TLS certificates for internal service communication (mTLS).
+# Each service gets its own cert/key pair signed by the autosre CA.
+# cert-manager renews these automatically 15 days before expiry.
+# ---------------------------------------------------------------------------
+
+# Agent certificate
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: {{ include "autosre.fullname" . }}-agent-tls
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "autosre.labels" . | nindent 4 }}
+spec:
+  secretName: {{ include "autosre.fullname" . }}-agent-tls
+  duration: 2160h    # 90 days
+  renewBefore: 360h  # 15 days
+  subject:
+    organizations:
+      - autosre
+  commonName: {{ include "autosre.fullname" . }}-agent
+  dnsNames:
+    - {{ include "autosre.fullname" . }}-agent
+    - {{ include "autosre.fullname" . }}-agent.{{ .Release.Namespace }}
+    - {{ include "autosre.fullname" . }}-agent.{{ .Release.Namespace }}.svc
+    - {{ include "autosre.fullname" . }}-agent.{{ .Release.Namespace }}.svc.cluster.local
+  privateKey:
+    algorithm: ECDSA
+    size: 256
+    rotationPolicy: Always
+  issuerRef:
+    name: {{ include "autosre.fullname" . }}-ca-issuer
+    kind: Issuer
+    group: cert-manager.io
+---
+# Diagnoser certificate
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: {{ include "autosre.fullname" . }}-diagnoser-tls
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "autosre.labels" . | nindent 4 }}
+spec:
+  secretName: {{ include "autosre.fullname" . }}-diagnoser-tls
+  duration: 2160h
+  renewBefore: 360h
+  subject:
+    organizations:
+      - autosre
+  commonName: {{ include "autosre.fullname" . }}-diagnoser
+  dnsNames:
+    - {{ include "autosre.fullname" . }}-diagnoser
+    - {{ include "autosre.fullname" . }}-diagnoser.{{ .Release.Namespace }}
+    - {{ include "autosre.fullname" . }}-diagnoser.{{ .Release.Namespace }}.svc
+    - {{ include "autosre.fullname" . }}-diagnoser.{{ .Release.Namespace }}.svc.cluster.local
+  privateKey:
+    algorithm: ECDSA
+    size: 256
+    rotationPolicy: Always
+  issuerRef:
+    name: {{ include "autosre.fullname" . }}-ca-issuer
+    kind: Issuer
+    group: cert-manager.io
+---
+# Learner certificate
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: {{ include "autosre.fullname" . }}-learner-tls
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "autosre.labels" . | nindent 4 }}
+spec:
+  secretName: {{ include "autosre.fullname" . }}-learner-tls
+  duration: 2160h
+  renewBefore: 360h
+  subject:
+    organizations:
+      - autosre
+  commonName: {{ include "autosre.fullname" . }}-learner
+  dnsNames:
+    - {{ include "autosre.fullname" . }}-learner
+    - {{ include "autosre.fullname" . }}-learner.{{ .Release.Namespace }}
+    - {{ include "autosre.fullname" . }}-learner.{{ .Release.Namespace }}.svc
+    - {{ include "autosre.fullname" . }}-learner.{{ .Release.Namespace }}.svc.cluster.local
+  privateKey:
+    algorithm: ECDSA
+    size: 256
+    rotationPolicy: Always
+  issuerRef:
+    name: {{ include "autosre.fullname" . }}-ca-issuer
+    kind: Issuer
+    group: cert-manager.io
+{{- end }}
