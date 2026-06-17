@@ -1,0 +1,669 @@
+openapi: "3.1.0"
+info:
+  title: AutoSRE Agent API
+  version: "1.0.0"
+  description: |
+    REST API for the AutoSRE Autonomous GitOps & Auto-Remediation agent.
+
+    ## Authentication
+    All `/api/v1/` endpoints (except `/health` and `/openapi.json`) require a Bearer JWT token.
+    When `OIDC_ENABLED=true` the token is verified against the configured OIDC issuer.
+    In development mode (`OIDC_ENABLED=false`) all requests receive **viewer** access.
+
+    ## Roles
+    | Role | Permissions |
+    |------|-------------|
+    | `viewer` | Read-only access to incidents, approvals, stats, status |
+    | `operator` | `viewer` + approve/reject remediations |
+    | `admin` | `operator` + toggle kill switch |
+
+    ## Rate limits
+    - GET endpoints: 100 req/s per IP (burst 50)
+    - POST endpoints: 10 req/s per IP (burst 5)
+
+servers:
+  - url: http://localhost:8080
+    description: Local development
+  - url: https://autosre.internal
+    description: In-cluster (via Ingress)
+
+tags:
+  - name: incidents
+    description: Read incident state and audit traces
+  - name: approvals
+    description: Manage pending human approval requests
+  - name: control
+    description: Runtime safety toggles (admin only)
+  - name: observability
+    description: Health, metrics, and API documentation
+
+paths:
+  # ---------------------------------------------------------------------------
+  # Incidents
+  # ---------------------------------------------------------------------------
+  /api/v1/incidents:
+    get:
+      operationId: listIncidents
+      summary: List all active incidents
+      tags: [incidents]
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Array of incidents (may be empty)
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Incident"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+
+  /api/v1/incidents/{id}:
+    get:
+      operationId: getIncident
+      summary: Get a single incident by ID
+      tags: [incidents]
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/IncidentID"
+      responses:
+        "200":
+          description: Incident object
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Incident"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+
+  /api/v1/incidents/{id}/trace:
+    get:
+      operationId: getIncidentTrace
+      summary: Get audit trace events for an incident
+      tags: [incidents]
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/IncidentID"
+        - name: trace_id
+          in: query
+          schema:
+            type: string
+          description: Filter by a specific trace ID (supersedes incident_id filter)
+        - name: stage
+          in: query
+          schema:
+            type: string
+            enum:
+              - AlertReceived
+              - IncidentOpened
+              - DiagnosisRequested
+              - DiagnosisReceived
+              - PolicyEvaluated
+              - ApprovalRequested
+              - ApprovalResolved
+              - RemediationApplied
+              - ApplySucceeded
+              - ApplyFailed
+              - VerificationRequested
+              - VerificationResolved
+              - IncidentClosed
+          description: Filter by pipeline stage
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 5000
+            default: 500
+          description: Maximum number of events to return
+      responses:
+        "200":
+          description: Audit trace for the incident
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TraceResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+
+  # ---------------------------------------------------------------------------
+  # Approvals
+  # ---------------------------------------------------------------------------
+  /api/v1/approvals/pending:
+    get:
+      operationId: listPendingApprovals
+      summary: List all pending approval requests
+      tags: [approvals]
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Array of pending approval requests
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ApprovalRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+
+  /api/v1/approvals/{id}/approve:
+    post:
+      operationId: approveRemediation
+      summary: Approve a pending remediation request
+      tags: [approvals]
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/ApprovalID"
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ApprovalDecisionBody"
+      responses:
+        "200":
+          description: Approval recorded; remediation will proceed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApprovalOutcome"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+
+  /api/v1/approvals/{id}/reject:
+    post:
+      operationId: rejectRemediation
+      summary: Reject a pending remediation request
+      tags: [approvals]
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/ApprovalID"
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ApprovalDecisionBody"
+      responses:
+        "200":
+          description: Rejection recorded; remediation will be cancelled
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApprovalOutcome"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+
+  # ---------------------------------------------------------------------------
+  # Stats & Status
+  # ---------------------------------------------------------------------------
+  /api/v1/stats:
+    get:
+      operationId: getStats
+      summary: Get remediation outcome statistics from the learner service
+      tags: [observability]
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Outcome stats (proxied from the learner service)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StatsResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "502":
+          description: Learner service unreachable
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /api/v1/status:
+    get:
+      operationId: getStatus
+      summary: Get current runtime safety toggle states
+      tags: [observability]
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Runtime status snapshot
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StatusResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  # ---------------------------------------------------------------------------
+  # Control
+  # ---------------------------------------------------------------------------
+  /api/v1/control/kill-switch:
+    post:
+      operationId: setKillSwitch
+      summary: Toggle the global kill switch (admin only)
+      description: |
+        When engaged, the kill switch blocks all autonomous remediation actions.
+        Every toggle is written to the audit log with the operator identity and reason.
+        Requires the `admin` role.
+      tags: [control]
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/KillSwitchRequest"
+      responses:
+        "200":
+          description: Kill switch state updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/KillSwitchResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+
+  # ---------------------------------------------------------------------------
+  # Health & Documentation
+  # ---------------------------------------------------------------------------
+  /api/v1/health:
+    get:
+      operationId: healthCheck
+      summary: Agent health check (no auth required)
+      tags: [observability]
+      responses:
+        "200":
+          description: Agent is healthy
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: ok
+
+  /api/v1/openapi.json:
+    get:
+      operationId: getOpenAPISpec
+      summary: Serve this OpenAPI specification (no auth required)
+      tags: [observability]
+      responses:
+        "200":
+          description: OpenAPI 3.1 specification (YAML or JSON)
+          content:
+            application/yaml:
+              schema:
+                type: string
+            application/json:
+              schema:
+                type: object
+
+  /metrics:
+    get:
+      operationId: getMetrics
+      summary: Prometheus metrics endpoint (no auth — network-policy-gated)
+      tags: [observability]
+      responses:
+        "200":
+          description: Prometheus text-format metrics
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /webhook/alertmanager:
+    post:
+      operationId: receiveAlertmanagerWebhook
+      summary: Receive Alertmanager webhook notifications
+      description: |
+        Accepts Alertmanager v2 webhook payloads and converts them into AutoSRE signals.
+        Authentication is network-policy-gated (only Alertmanager pods may call this endpoint).
+      tags: [incidents]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AlertmanagerWebhook"
+      responses:
+        "204":
+          description: Webhook accepted
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "503":
+          description: Ingestor unavailable (k8s client not initialized)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+# ---------------------------------------------------------------------------
+# Components
+# ---------------------------------------------------------------------------
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  parameters:
+    IncidentID:
+      name: id
+      in: path
+      required: true
+      description: Incident ID (UUID)
+      schema:
+        type: string
+        format: uuid
+
+    ApprovalID:
+      name: id
+      in: path
+      required: true
+      description: Approval request ID (UUID)
+      schema:
+        type: string
+        format: uuid
+
+  responses:
+    BadRequest:
+      description: Malformed request body or parameters
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    Unauthorized:
+      description: Missing or invalid authentication token
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    Forbidden:
+      description: Insufficient role for this action
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    RateLimited:
+      description: Too many requests
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+
+  schemas:
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: string
+          example: "incident not found"
+
+    Signal:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        source:
+          type: string
+          example: "kubernetes-watcher"
+        namespace:
+          type: string
+          example: "production"
+        resource:
+          type: string
+          example: "my-api"
+        severity:
+          type: string
+          enum: [low, medium, high, critical]
+        kind:
+          type: string
+          example: "Pod"
+        reason:
+          type: string
+          example: "CrashLoopBackOff"
+        message:
+          type: string
+        labels:
+          type: object
+          additionalProperties:
+            type: string
+
+    Incident:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        signals:
+          type: array
+          items:
+            $ref: "#/components/schemas/Signal"
+        affected_resources:
+          type: array
+          items:
+            type: string
+        severity:
+          type: string
+          enum: [low, medium, high, critical]
+        opened_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    AuditEvent:
+      type: object
+      properties:
+        timestamp:
+          type: string
+          format: date-time
+        trace_id:
+          type: string
+        incident_id:
+          type: string
+        stage:
+          type: string
+        outcome:
+          type: string
+        details:
+          type: object
+          additionalProperties:
+            type: string
+
+    TraceResponse:
+      type: object
+      properties:
+        incident_id:
+          type: string
+        events:
+          type: array
+          items:
+            $ref: "#/components/schemas/AuditEvent"
+        count:
+          type: integer
+
+    ApprovalRequest:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        incident_id:
+          type: string
+        action:
+          type: string
+          example: "scale-deployment"
+        proposed_change:
+          type: string
+        requested_at:
+          type: string
+          format: date-time
+        expires_at:
+          type: string
+          format: date-time
+
+    ApprovalDecisionBody:
+      type: object
+      properties:
+        reason:
+          type: string
+          example: "Reviewed and approved — OOM pattern matches known memory leak"
+
+    ApprovalOutcome:
+      type: object
+      properties:
+        request_id:
+          type: string
+        decision:
+          type: string
+          enum: [approved, denied]
+        approver:
+          type: string
+
+    KillSwitchRequest:
+      type: object
+      required: [engaged]
+      properties:
+        engaged:
+          type: boolean
+        reason:
+          type: string
+          example: "Emergency: stopping all remediations during incident response"
+
+    KillSwitchResponse:
+      type: object
+      properties:
+        kill_switch_engaged:
+          type: boolean
+        previous:
+          type: boolean
+        operator:
+          type: string
+
+    StatusResponse:
+      type: object
+      properties:
+        apply_enabled:
+          type: boolean
+        kill_switch_engaged:
+          type: boolean
+        in_flight_pipelines:
+          type: integer
+        circuit_breaker_tripped:
+          type: boolean
+        circuit_breaker_count:
+          type: integer
+        circuit_breaker_max:
+          type: integer
+        circuit_breaker_window_sec:
+          type: integer
+
+    StatsResponse:
+      type: object
+      properties:
+        total_outcomes:
+          type: integer
+        by_failure_mode_action:
+          type: object
+          additionalProperties:
+            type: object
+
+    AlertmanagerWebhook:
+      type: object
+      description: Alertmanager v2 webhook payload
+      properties:
+        version:
+          type: string
+          example: "4"
+        groupKey:
+          type: string
+        status:
+          type: string
+          enum: [firing, resolved]
+        receiver:
+          type: string
+        alerts:
+          type: array
+          items:
+            type: object
+            properties:
+              status:
+                type: string
+              labels:
+                type: object
+                additionalProperties:
+                  type: string
+              annotations:
+                type: object
+                additionalProperties:
+                  type: string
+              startsAt:
+                type: string
+                format: date-time
+              endsAt:
+                type: string
+                format: date-time
