@@ -26,8 +26,13 @@ func (m *MemorySink) Query(_ context.Context, f QueryFilter) ([]AuditEvent, erro
 	defer m.mu.RUnlock()
 
 	var out []AuditEvent
+	skipped := 0
 	for _, ev := range m.events {
 		if f.matches(ev) {
+			if skipped < f.Offset {
+				skipped++
+				continue
+			}
 			out = append(out, ev)
 			if f.Limit > 0 && len(out) >= f.Limit {
 				break

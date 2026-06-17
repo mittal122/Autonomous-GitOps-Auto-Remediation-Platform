@@ -30,6 +30,7 @@ import (
 	"github.com/autosre/agent/internal/notifier"
 	"github.com/autosre/agent/internal/policy"
 	"github.com/autosre/agent/internal/uid"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"golang.org/x/time/rate"
 )
 
@@ -143,6 +144,15 @@ func (s *Server) Handler(webUIDir string) http.Handler {
 	mux.HandleFunc("GET /api/v1/health", func(w http.ResponseWriter, _ *http.Request) {
 		jsonOK(w, map[string]string{"status": "ok"}) //nolint:errcheck
 	})
+
+	// Prometheus metrics (no auth — scrape target).
+	mux.Handle("GET /metrics", promhttp.Handler())
+
+	// OpenAPI spec (no auth — documentation).
+	mux.HandleFunc("GET /api/v1/openapi.json", s.handleOpenAPI)
+
+	// Paginated audit log (viewer+).
+	mux.Handle("GET /api/v1/audit", s.auth.enforce(s.handle(s.handleListAudit), RoleViewer))
 
 	// CORS pre-flight for cross-origin calls from the Vite dev server.
 	mux.HandleFunc("/api/", corsHeaders)
@@ -449,6 +459,46 @@ func (s *Server) record(ctx context.Context, traceID, incidentID string, stage a
 	if err := s.sink.Record(ctx, ev); err != nil {
 		s.log.Warn("api: audit record failed (non-fatal)", "error", err, "stage", stage)
 	}
+}
+
+func (s *Server) handleOpenAPI(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	http.ServeFile(w, r, "docs/openapi.yaml")
+}
+
+func (s *Server) handleListAudit(w http.ResponseWriter, r *http.Request) error {
+	q := r.URL.Query()
+	filter := audit.QueryFilter{Limit: 100}
+	if v := q.Get("incident_id"); v != "" {
+		filter.IncidentID = v
+	}
+	if v := q.Get("trace_id"); v != "" {
+		filter.TraceID = v
+	}
+	if v := q.Get("stage"); v != "" {
+		filter.Stage = audit.Stage(v)
+	}
+	if v := q.Get("limit"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 && n <= 1000 {
+			filter.Limit = n
+		}
+	}
+	if v := q.Get("offset"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n >= 0 {
+			filter.Offset = n
+		}
+	}
+	events, err := s.sink.Query(r.Context(), filter)
+	if err != nil {
+		s.log.Warn("api: audit query failed", "error", err)
+		return &apiError{"audit query failed", http.StatusInternalServerError}
+	}
+	return jsonOK(w, map[string]any{
+		"events": events,
+		"count":  len(events),
+		"limit":  filter.Limit,
+		"offset": filter.Offset,
+	})
 }
 
 const uiPlaceholder = `<!DOCTYPE html>

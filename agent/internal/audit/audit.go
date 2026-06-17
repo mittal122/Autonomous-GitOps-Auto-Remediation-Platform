@@ -62,6 +62,8 @@ type QueryFilter struct {
 	Until time.Time
 	// Limit caps the number of returned events (0 = no limit).
 	Limit int
+	// Offset skips the first N matching events (for pagination).
+	Offset int
 }
 
 // matches reports whether ev satisfies f.
