@@ -1,0 +1,30 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: autosre-integration-crashloop
+  namespace: autosre-integration
+  labels:
+    app: autosre-integration-crashloop
+    autosre-test: "true"
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: autosre-integration-crashloop
+  template:
+    metadata:
+      labels:
+        app: autosre-integration-crashloop
+        autosre-test: "true"
+    spec:
+      containers:
+        - name: app
+          image: busybox:1.36
+          command: ["sh", "-c", "exit 1"]   # exits immediately → triggers CrashLoopBackOff
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+            limits:
+              cpu: 50m
+              memory: 32Mi

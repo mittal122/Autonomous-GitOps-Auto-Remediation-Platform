@@ -1,0 +1,35 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: autosre-integration-oomkill
+  namespace: autosre-integration
+  labels:
+    app: autosre-integration-oomkill
+    autosre-test: "true"
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: autosre-integration-oomkill
+  template:
+    metadata:
+      labels:
+        app: autosre-integration-oomkill
+        autosre-test: "true"
+    spec:
+      containers:
+        - name: app
+          image: busybox:1.36
+          # Allocates ~100MB immediately then exits — triggers OOMKilled with 32Mi limit.
+          command:
+            - sh
+            - -c
+            - |
+              dd if=/dev/urandom bs=1M count=100 | cat > /dev/null
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+            limits:
+              cpu: 50m
+              memory: 32Mi   # intentionally low to trigger OOM
