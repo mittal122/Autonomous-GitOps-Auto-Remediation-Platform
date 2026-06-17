@@ -23,11 +23,23 @@ spec:
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}
       {{- end }}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        fsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: agent
           image: "{{ .Values.agent.image.repository }}:{{ .Values.agent.image.tag }}"
           imagePullPolicy: {{ .Values.agent.image.pullPolicy }}
           args: ["run"]
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
           ports:
             - name: http
               containerPort: 8080
@@ -79,6 +91,8 @@ spec:
             {{- end }}
             - name: STORE_DSN
               value: {{ .Values.agent.storeDSN | default "file:./data/autosre.db?_journal_mode=WAL" | quote }}
+            - name: SHUTDOWN_TIMEOUT
+              value: {{ .Values.agent.shutdownTimeout | default "30s" | quote }}
             {{- with .Values.agent.env }}
             {{- toYaml . | nindent 12 }}
             {{- end }}
@@ -99,6 +113,8 @@ spec:
               mountPath: /etc/autosre/git-ssh
               readOnly: true
             {{- end }}
+            - name: tmp
+              mountPath: /tmp
           livenessProbe:
             httpGet:
               path: /api/v1/health
@@ -128,6 +144,8 @@ spec:
             secretName: {{ .Values.agent.git.credentialsSecret }}
             defaultMode: 0400
         {{- end }}
+        - name: tmp
+          emptyDir: {}
 ---
 {{- if .Values.agent.persistence.enabled }}
 apiVersion: v1

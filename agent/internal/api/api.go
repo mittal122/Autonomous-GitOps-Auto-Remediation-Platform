@@ -18,8 +18,10 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"strconv"
+	"sync"
 	"time"
 
 	"github.com/autosre/agent/internal/audit"
@@ -28,6 +30,7 @@ import (
 	"github.com/autosre/agent/internal/notifier"
 	"github.com/autosre/agent/internal/policy"
 	"github.com/autosre/agent/internal/uid"
+	"golang.org/x/time/rate"
 )
 
 // IncidentLister provides a snapshot of all known incidents.
@@ -54,7 +57,40 @@ type Server struct {
 	learner     *http.Client
 	learnerAddr string
 	auth        *authMiddleware
+	rl          *ipRateLimiter
 	log         *slog.Logger
+}
+
+// ipRateLimiter maintains per-IP rate limiters with periodic cleanup.
+type ipRateLimiter struct {
+	mu      sync.Mutex
+	clients map[string]*rate.Limiter
+	cleanAt time.Time
+}
+
+func newIPRateLimiter() *ipRateLimiter {
+	return &ipRateLimiter{
+		clients: make(map[string]*rate.Limiter),
+		cleanAt: time.Now().Add(time.Minute),
+	}
+}
+
+// get returns the limiter for ip, creating one if needed.
+// r and burst are only used when creating a new limiter.
+func (rl *ipRateLimiter) get(ip string, r rate.Limit, burst int) *rate.Limiter {
+	rl.mu.Lock()
+	defer rl.mu.Unlock()
+	// Periodic cleanup: replace the entire map so old IPs don't accumulate.
+	if time.Now().After(rl.cleanAt) {
+		rl.clients = make(map[string]*rate.Limiter)
+		rl.cleanAt = time.Now().Add(time.Minute)
+	}
+	lim, ok := rl.clients[ip]
+	if !ok {
+		lim = rate.NewLimiter(r, burst)
+		rl.clients[ip] = lim
+	}
+	return lim
 }
 
 // NewServer creates a Server.
@@ -78,6 +114,7 @@ func NewServer(
 		learner:     &http.Client{Timeout: 5 * time.Second},
 		learnerAddr: learnerAddr,
 		auth:        newAuthMiddleware(ctx, cfg, log),
+		rl:          newIPRateLimiter(),
 		log:         log,
 	}
 }
@@ -124,7 +161,46 @@ func (s *Server) Handler(webUIDir string) http.Handler {
 		})
 	}
 
-	return mux
+	return s.rateLimited(mux)
+}
+
+// rateLimited wraps next with per-IP rate limiting.
+// GET endpoints: 100 req/s, burst 50. POST endpoints: 10 req/s, burst 5.
+func (s *Server) rateLimited(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ip := clientIP(r)
+		var lim *rate.Limiter
+		if r.Method == http.MethodGet {
+			lim = s.rl.get(ip, 100, 50)
+		} else {
+			lim = s.rl.get(ip, 10, 5)
+		}
+		if !lim.Allow() {
+			jsonError(w, "rate limit exceeded", http.StatusTooManyRequests)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+// clientIP extracts the best-effort client IP from the request.
+func clientIP(r *http.Request) string {
+	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
+		// Take the first (leftmost) IP which is the original client.
+		if idx := len(xff); idx > 0 {
+			for i := 0; i < len(xff); i++ {
+				if xff[i] == ',' {
+					return xff[:i]
+				}
+			}
+			return xff
+		}
+	}
+	ip, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		return r.RemoteAddr
+	}
+	return ip
 }
 
 // ---------------------------------------------------------------------------

@@ -207,6 +207,10 @@ type Config struct {
 
 	// Logging
 	LogLevel string // "debug", "info", "warn", "error"; default "info"
+
+	// ShutdownTimeout caps how long the agent waits for in-flight pipelines to
+	// finish when SIGTERM is received. Default: 30s.
+	ShutdownTimeout time.Duration // env: SHUTDOWN_TIMEOUT
 }
 
 // Load reads configuration from environment variables with sane defaults.
@@ -285,6 +289,7 @@ func Load() Config {
 		Store: StoreConfig{
 			DSN: getEnv("STORE_DSN", "file:./data/autosre.db?_journal_mode=WAL"),
 		},
+		ShutdownTimeout: getDuration("SHUTDOWN_TIMEOUT", 30*time.Second),
 	}
 }
 

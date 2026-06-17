@@ -1,0 +1,120 @@
+{{- if .Values.networkPolicy.enabled }}
+# ---------------------------------------------------------------------------
+# Default deny-all ingress for every pod in the autosre namespace.
+# Traffic is only allowed by the rules below.
+# ---------------------------------------------------------------------------
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "autosre.fullname" . }}-default-deny
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "autosre.labels" . | nindent 4 }}
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+---
+# ---------------------------------------------------------------------------
+# Agent: allow inbound from Alertmanager and operators (port 8080)
+# ---------------------------------------------------------------------------
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "autosre.fullname" . }}-agent-ingress
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "autosre.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "autosre.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: agent
+  policyTypes:
+    - Ingress
+  ingress:
+    # Alertmanager webhook (in the monitoring namespace)
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Values.networkPolicy.monitoringNamespace | default "monitoring" }}
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: alertmanager
+      ports:
+        - protocol: TCP
+          port: 8080
+    # Operator browsers / ingress controller in the same namespace
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Values.networkPolicy.ingressNamespace | default "ingress-nginx" }}
+      ports:
+        - protocol: TCP
+          port: 8080
+    # Prometheus scrape (for /metrics, once added)
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Values.networkPolicy.monitoringNamespace | default "monitoring" }}
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: prometheus
+      ports:
+        - protocol: TCP
+          port: 8080
+---
+# ---------------------------------------------------------------------------
+# Diagnoser: only the agent may call it (port 8001)
+# ---------------------------------------------------------------------------
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "autosre.fullname" . }}-diagnoser-ingress
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "autosre.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "autosre.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: diagnoser
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              {{- include "autosre.selectorLabels" . | nindent 14 }}
+              app.kubernetes.io/component: agent
+      ports:
+        - protocol: TCP
+          port: {{ .Values.diagnoser.service.port }}
+---
+# ---------------------------------------------------------------------------
+# Learner: only the agent may call it (port 8002)
+# ---------------------------------------------------------------------------
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "autosre.fullname" . }}-learner-ingress
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "autosre.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "autosre.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: learner
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              {{- include "autosre.selectorLabels" . | nindent 14 }}
+              app.kubernetes.io/component: agent
+      ports:
+        - protocol: TCP
+          port: {{ .Values.learner.service.port }}
+{{- end }}

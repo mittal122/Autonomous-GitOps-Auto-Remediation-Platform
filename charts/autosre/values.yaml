@@ -56,7 +56,18 @@ agent:
   # Path to policy.yaml (mounted as ConfigMap)
   policyFile: /etc/autosre/policy.yaml
 
-  # Data volume (audit log, etc.)
+  # Git push configuration
+  git:
+    remoteURL: ""           # e.g. https://github.com/org/gitops-repo.git
+    credentialsSecret: ""   # name of a k8s Secret with keys: token, id_ed25519
+
+  # SQLite persistent store DSN
+  storeDSN: "file:./data/autosre.db?_journal_mode=WAL"
+
+  # Graceful shutdown timeout (parsed as Go duration, e.g. "30s", "1m")
+  shutdownTimeout: "30s"
+
+  # Data volume (audit log, SQLite DB, etc.)
   persistence:
     enabled: true
     size: 1Gi
@@ -133,6 +144,14 @@ serviceAccount:
 
 rbac:
   create: true
+
+# ---------------------------------------------------------------------------
+# NetworkPolicies
+# ---------------------------------------------------------------------------
+networkPolicy:
+  enabled: false   # set true to enforce deny-all + explicit allow rules
+  monitoringNamespace: "monitoring"   # namespace where Prometheus/Alertmanager live
+  ingressNamespace: "ingress-nginx"   # namespace where the ingress controller lives
 
 # ---------------------------------------------------------------------------
 # ArgoCD / GitOps

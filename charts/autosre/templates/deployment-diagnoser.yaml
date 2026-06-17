@@ -22,10 +22,21 @@ spec:
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}
       {{- end }}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: diagnoser
           image: "{{ .Values.diagnoser.image.repository }}:{{ .Values.diagnoser.image.tag }}"
           imagePullPolicy: {{ .Values.diagnoser.image.pullPolicy }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
           ports:
             - name: http
               containerPort: {{ .Values.diagnoser.service.port }}
@@ -58,5 +69,11 @@ spec:
               port: http
             initialDelaySeconds: 5
             periodSeconds: 10
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
           resources:
             {{- toYaml .Values.diagnoser.resources | nindent 12 }}
+      volumes:
+        - name: tmp
+          emptyDir: {}

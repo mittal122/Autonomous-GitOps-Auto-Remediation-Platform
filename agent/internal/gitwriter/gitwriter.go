@@ -11,6 +11,7 @@ import (
 
 	"github.com/go-git/go-git/v5"
 	gitconfig "github.com/go-git/go-git/v5/config"
+	"github.com/go-git/go-git/v5/plumbing"
 	"github.com/go-git/go-git/v5/plumbing/object"
 	gogithttp "github.com/go-git/go-git/v5/plumbing/transport/http"
 	gogitssh "github.com/go-git/go-git/v5/plumbing/transport/ssh"
@@ -51,6 +52,46 @@ type Writer struct {
 // points to a valid git repository before calling EditField.
 func New(cfg Config, log *slog.Logger) *Writer {
 	return &Writer{cfg: cfg, log: log}
+}
+
+// EnsureRepo checks whether cfg.RepoPath is a valid git repository.
+// If not, and if cfg.RemoteURL is set, it clones the remote repository.
+// Call once at startup before the first EditField; safe to call on every start
+// (it's a no-op when the repo already exists).
+func (w *Writer) EnsureRepo(ctx context.Context) error {
+	if w.cfg.RepoPath == "" {
+		return nil
+	}
+	if _, err := git.PlainOpen(w.cfg.RepoPath); err == nil {
+		return nil // repo already exists
+	}
+	if w.cfg.RemoteURL == "" {
+		return fmt.Errorf("gitwriter: %q is not a git repo and GIT_REMOTE_URL is not set", w.cfg.RepoPath)
+	}
+	w.log.InfoContext(ctx, "gitwriter: cloning repo (empty PVC or first start)",
+		"remote", w.cfg.RemoteURL, "path", w.cfg.RepoPath)
+
+	opts := &git.CloneOptions{
+		URL:           w.cfg.RemoteURL,
+		SingleBranch:  true,
+		ReferenceName: plumbing.NewBranchReferenceName(w.cfg.Branch),
+	}
+	switch {
+	case w.cfg.AuthToken != "":
+		opts.Auth = &gogithttp.BasicAuth{Username: "x-token", Password: w.cfg.AuthToken}
+	case w.cfg.SSHKeyPath != "":
+		auth, err := gogitssh.NewPublicKeysFromFile("git", w.cfg.SSHKeyPath, "")
+		if err != nil {
+			return fmt.Errorf("gitwriter: load SSH key: %w", err)
+		}
+		opts.Auth = auth
+	}
+
+	if _, err := git.PlainCloneContext(ctx, w.cfg.RepoPath, false, opts); err != nil {
+		return fmt.Errorf("gitwriter: clone %s to %s: %w", w.cfg.RemoteURL, w.cfg.RepoPath, err)
+	}
+	w.log.InfoContext(ctx, "gitwriter: clone complete", "path", w.cfg.RepoPath)
+	return nil
 }
 
 // GetCurrentValue returns the current value of fieldPath in the manifest for

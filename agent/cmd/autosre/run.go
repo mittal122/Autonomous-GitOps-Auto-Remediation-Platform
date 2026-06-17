@@ -86,6 +86,12 @@ func runRun(args []string, cfg config.Config, log *slog.Logger) int {
 	if cfg.Remediator.RemoteURL == "" {
 		log.Warn("gitwriter: GIT_REMOTE_URL not set — commits are local only (ArgoCD will not sync)")
 	}
+	if cfg.Remediator.RepoPath != "" {
+		if cloneErr := gw.EnsureRepo(ctx); cloneErr != nil {
+			log.Warn("gitwriter: repo not available; remediation will fail until repo is cloned",
+				"error", cloneErr)
+		}
+	}
 
 	polCfg, err := policy.LoadPolicyFile(cfg.Orchestrator.PolicyFile)
 	if err != nil {
@@ -256,7 +262,15 @@ func runRun(args []string, cfg config.Config, log *slog.Logger) int {
 	}
 	cor.Run(ctx, src)
 
-	wg.Wait()
-	log.Info("autosre run: stopped cleanly")
+	// Graceful shutdown: wait for in-flight pipelines, but don't wait forever.
+	done := make(chan struct{})
+	go func() { wg.Wait(); close(done) }()
+	select {
+	case <-done:
+		log.Info("autosre run: stopped cleanly")
+	case <-time.After(cfg.ShutdownTimeout):
+		log.Warn("autosre run: shutdown timeout reached; forcing exit",
+			"timeout", cfg.ShutdownTimeout)
+	}
 	return 0
 }
