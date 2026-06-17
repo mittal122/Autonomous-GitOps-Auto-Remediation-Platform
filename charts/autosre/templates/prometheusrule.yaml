@@ -1,0 +1,98 @@
+{{- if .Values.metrics.prometheusRules.enabled }}
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: {{ include "autosre.fullname" . }}-alerts
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "autosre.labels" . | nindent 4 }}
+    {{- with .Values.metrics.prometheusRules.additionalLabels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  groups:
+    - name: autosre.agent
+      interval: 30s
+      rules:
+        # -----------------------------------------------------------------------
+        # Availability
+        # -----------------------------------------------------------------------
+        - alert: AutoSREAgentDown
+          expr: |
+            absent(up{job="{{ include "autosre.fullname" . }}-agent"}) == 1
+            or up{job="{{ include "autosre.fullname" . }}-agent"} == 0
+          for: 2m
+          labels:
+            severity: critical
+            component: agent
+          annotations:
+            summary: "AutoSRE agent is unreachable"
+            description: >-
+              The autosre-agent Prometheus target has been down for more than 2 minutes.
+              No incidents will be detected or remediated while the agent is unavailable.
+            runbook_url: "https://github.com/autosre/agent/blob/main/docs/OPERATOR_RUNBOOK.md#agent-down"
+
+        # -----------------------------------------------------------------------
+        # Safety toggles (warn when left on unexpectedly long)
+        # -----------------------------------------------------------------------
+        - alert: AutoSRECircuitBreakerTripped
+          expr: autosre_circuit_breaker_state{state="tripped"} == 1
+          for: 10m
+          labels:
+            severity: warning
+            component: agent
+          annotations:
+            summary: "AutoSRE circuit breaker has been tripped for 10+ minutes"
+            description: >-
+              The autonomous-action circuit breaker has been open for more than 10 minutes.
+              All autonomous remediations are blocked. Check for a remediation action storm
+              or a mis-configured blast radius policy.
+            runbook_url: "https://github.com/autosre/agent/blob/main/docs/OPERATOR_RUNBOOK.md#circuit-breaker"
+
+        - alert: AutoSREKillSwitchEngaged
+          expr: autosre_kill_switch_engaged == 1
+          for: 30m
+          labels:
+            severity: warning
+            component: agent
+          annotations:
+            summary: "AutoSRE kill switch has been engaged for 30+ minutes"
+            description: >-
+              The global kill switch has been on for more than 30 minutes.
+              This may have been left on accidentally after an emergency. All autonomous
+              remediation is blocked while the kill switch is engaged.
+            runbook_url: "https://github.com/autosre/agent/blob/main/docs/OPERATOR_RUNBOOK.md#kill-switch"
+
+        # -----------------------------------------------------------------------
+        # Remediation health
+        # -----------------------------------------------------------------------
+        - alert: AutoSREHighRemediationFailureRate
+          expr: |
+            sum(rate(autosre_incidents_total{outcome="failed"}[1h]))
+            /
+            (sum(rate(autosre_incidents_total[1h])) > 0)
+            > 0.20
+          for: 10m
+          labels:
+            severity: warning
+            component: agent
+          annotations:
+            summary: "AutoSRE remediation failure rate exceeds 20% over the past hour"
+            description: >-
+              More than 20% of processed incidents have resulted in a failed remediation
+              over the past hour. This may indicate a broken policy configuration, a
+              persistently unreachable diagnoser, or repeated policy BLOCK verdicts.
+            runbook_url: "https://github.com/autosre/agent/blob/main/docs/OPERATOR_RUNBOOK.md#high-failure-rate"
+
+        - alert: AutoSREApprovalQueueDepthHigh
+          expr: autosre_approvals_pending > 10
+          for: 5m
+          labels:
+            severity: warning
+            component: agent
+          annotations:
+            summary: "AutoSRE has more than 10 approvals waiting for a human decision"
+            description: >-
+              {{ "{{ $value }}" }} remediation requests are waiting for human approval.
+              If operators are unavailable, incidents will remain open until approvals time out.
+{{- end }}
