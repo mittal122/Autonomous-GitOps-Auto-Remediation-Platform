@@ -31,19 +31,12 @@ export default function AuditLog() {
   const load = useCallback((pg: number, inc: string, stage: string) => {
     setLoading(true)
     setError(null)
-    const params = new URLSearchParams({
-      limit: String(PAGE_SIZE),
-      offset: String(pg * PAGE_SIZE),
+    api.listAudit({
+      incidentId: inc || undefined,
+      stage: stage || undefined,
+      limit: PAGE_SIZE,
+      offset: pg * PAGE_SIZE,
     })
-    if (inc) params.set('incident_id', inc)
-    if (stage) params.set('stage', stage)
-
-    const token = localStorage.getItem('autosre_token')
-    const headers: Record<string, string> = {}
-    if (token) headers['Authorization'] = `Bearer ${token}`
-
-    fetch(`/api/v1/audit?${params}`, { headers })
-      .then((r) => r.json())
       .then((data) => {
         setEvents(data.events ?? [])
         setTotal(data.count ?? 0)
