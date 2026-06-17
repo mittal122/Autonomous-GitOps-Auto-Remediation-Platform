@@ -1,10 +1,14 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useState } from 'react'
 import { api, type PendingApproval } from '../api/client'
+import { useInterval } from '../hooks/useInterval'
+import { useToast } from '../hooks/useToast'
+import { SkeletonCards } from '../components/Skeleton'
 
 function ApprovalCard({ approval, onResolved }: { approval: PendingApproval; onResolved: () => void }) {
   const [reason, setReason] = useState('')
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState<string | null>(null)
+  const { toast } = useToast()
 
   async function decide(approve: boolean) {
     setBusy(true)
@@ -12,12 +16,16 @@ function ApprovalCard({ approval, onResolved }: { approval: PendingApproval; onR
     try {
       if (approve) {
         await api.approve(approval.request_id, reason)
+        toast('Approval submitted successfully', 'success')
       } else {
         await api.reject(approval.request_id, reason)
+        toast('Rejection submitted successfully', 'info')
       }
       onResolved()
     } catch (e: unknown) {
-      setErr((e as Error).message)
+      const msg = (e as Error).message
+      setErr(msg)
+      toast(msg, 'error')
     } finally {
       setBusy(false)
     }
@@ -79,28 +87,26 @@ export default function Approvals() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
-  function load() {
-    setLoading(true)
+  const load = useCallback(() => {
     api.listApprovals()
-      .then((data) => setApprovals(data ?? []))
+      .then((data) => { setApprovals(data ?? []); setError(null) })
       .catch((e: Error) => setError(e.message))
       .finally(() => setLoading(false))
-  }
+  }, [])
 
-  useEffect(load, [])
-
-  if (loading) return <p className="text-gray-500">Loading approvals...</p>
-  if (error) return <p className="text-red-600">Error: {error}</p>
+  useState(() => { load() })
+  useInterval(load, 15_000)
 
   return (
     <div>
       <div className="flex items-center justify-between mb-4">
         <h1 className="text-2xl font-bold">Pending Approvals</h1>
-        <button onClick={load} className="text-sm text-indigo-600 hover:underline">Refresh</button>
+        <span className="text-xs text-gray-400">auto-refresh 15s</span>
       </div>
-      {approvals.length === 0 ? (
-        <p className="text-gray-500">No pending approvals.</p>
-      ) : (
+      {loading && <SkeletonCards rows={3} />}
+      {error && <p className="text-red-600 text-sm">Error: {error}</p>}
+      {!loading && approvals.length === 0 && <p className="text-gray-500">No pending approvals.</p>}
+      {!loading && approvals.length > 0 && (
         <div className="space-y-3">
           {approvals.map((a) => (
             <ApprovalCard key={a.request_id} approval={a} onResolved={load} />
