@@ -1,5 +1,8 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useState } from 'react'
 import { api, type StatusResponse } from '../api/client'
+import { useInterval } from '../hooks/useInterval'
+import { useToast } from '../hooks/useToast'
+import { SkeletonStats } from '../components/Skeleton'
 
 function Badge({ ok, yes, no }: { ok: boolean; yes: string; no: string }) {
   return (
@@ -16,16 +19,17 @@ export default function Status() {
   const [ksReason, setKsReason] = useState('')
   const [ksError, setKsError] = useState<string | null>(null)
   const [ksBusy, setKsBusy] = useState(false)
+  const { toast } = useToast()
 
-  function load() {
-    setLoading(true)
+  const load = useCallback(() => {
     api.getStatus()
-      .then(setStatus)
+      .then((s) => { setStatus(s); setError(null) })
       .catch((e: Error) => setError(e.message))
       .finally(() => setLoading(false))
-  }
+  }, [])
 
-  useEffect(load, [])
+  useState(() => { load() })
+  useInterval(load, 20_000)
 
   async function toggleKillSwitch() {
     if (!status) return
@@ -36,18 +40,24 @@ export default function Status() {
     setKsBusy(true)
     setKsError(null)
     try {
-      await api.setKillSwitch(!status.kill_switch_engaged, ksReason)
+      const result = await api.setKillSwitch(!status.kill_switch_engaged, ksReason)
       setKsReason('')
+      toast(
+        result.kill_switch_engaged ? 'Kill switch ENGAGED — all remediations halted' : 'Kill switch disengaged — remediations resumed',
+        result.kill_switch_engaged ? 'error' : 'success',
+      )
       load()
     } catch (e: unknown) {
-      setKsError((e as Error).message)
+      const msg = (e as Error).message
+      setKsError(msg)
+      toast(msg, 'error')
     } finally {
       setKsBusy(false)
     }
   }
 
-  if (loading) return <p className="text-gray-500">Loading status...</p>
-  if (error) return <p className="text-red-600">Error: {error}</p>
+  if (loading && !status) return <><h1 className="text-2xl font-bold mb-4">System Status</h1><SkeletonStats /></>
+  if (error) return <p className="text-red-600 text-sm">Error: {error}</p>
   if (!status) return null
 
   return (
