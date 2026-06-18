@@ -30,6 +30,15 @@ type Store interface {
 	// LoadCBEvents returns the timestamps of events recorded after `since`.
 	LoadCBEvents(ctx context.Context, since time.Time) ([]time.Time, error)
 
+	// GetSetting returns the raw stored value for key. ok is false when the key is absent.
+	// Values are opaque bytes to this layer — callers (e.g. internal/settings) own any
+	// encryption/encoding.
+	GetSetting(ctx context.Context, key string) (value []byte, ok bool, err error)
+	// PutSetting writes (or overwrites) the raw value for key.
+	PutSetting(ctx context.Context, key string, value []byte) error
+	// DeleteSetting removes key, if present.
+	DeleteSetting(ctx context.Context, key string) error
+
 	Close() error
 }
 

@@ -37,6 +37,12 @@ CREATE TABLE IF NOT EXISTS circuit_breaker_events (
     recorded_at INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_cb_recorded ON circuit_breaker_events (recorded_at);
+
+CREATE TABLE IF NOT EXISTS integration_settings (
+    key        TEXT    PRIMARY KEY,
+    value      BLOB    NOT NULL,
+    updated_at INTEGER NOT NULL
+);
 `
 
 // SQLiteStore is a Store backed by a local SQLite database.
@@ -173,6 +179,43 @@ func (s *SQLiteStore) LoadPendingApprovals(ctx context.Context) ([]ApprovalRecor
 		out = append(out, rec)
 	}
 	return out, rows.Err()
+}
+
+func (s *SQLiteStore) GetSetting(ctx context.Context, key string) ([]byte, bool, error) {
+	var value []byte
+	err := s.db.QueryRowContext(ctx,
+		`SELECT value FROM integration_settings WHERE key = ?`, key,
+	).Scan(&value)
+	if err == sql.ErrNoRows {
+		return nil, false, nil
+	}
+	if err != nil {
+		return nil, false, fmt.Errorf("get setting %q: %w", key, err)
+	}
+	return value, true, nil
+}
+
+func (s *SQLiteStore) PutSetting(ctx context.Context, key string, value []byte) error {
+	_, err := s.db.ExecContext(ctx, `
+		INSERT INTO integration_settings (key, value, updated_at)
+		VALUES (?, ?, ?)
+		ON CONFLICT(key) DO UPDATE SET
+		    value      = excluded.value,
+		    updated_at = excluded.updated_at`,
+		key, value, time.Now().UnixMilli(),
+	)
+	if err != nil {
+		return fmt.Errorf("put setting %q: %w", key, err)
+	}
+	return nil
+}
+
+func (s *SQLiteStore) DeleteSetting(ctx context.Context, key string) error {
+	_, err := s.db.ExecContext(ctx, `DELETE FROM integration_settings WHERE key = ?`, key)
+	if err != nil {
+		return fmt.Errorf("delete setting %q: %w", key, err)
+	}
+	return nil
 }
 
 func (s *SQLiteStore) RecordCBEvent(ctx context.Context) error {
