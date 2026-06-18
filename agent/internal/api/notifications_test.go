@@ -101,12 +101,13 @@ func TestSaveNotificationsIntegration_PagerDutyOnlySavePreservesSlackChannel(t *
 	}
 }
 
-func TestSaveNotificationsIntegration_ViewerForbidden(t *testing.T) {
+// Saving Settings-page config is viewer-level by design — see api.go's role-tiering note.
+func TestSaveNotificationsIntegration_ViewerAllowed(t *testing.T) {
 	srv := newTestServerWithLLM(t, nil, true)
 	viewer := makeBearer([]string{"viewer"})
 	rr := doRequest(t, srv.Handler(""), http.MethodPost, "/api/v1/integrations/notifications", []byte(`{}`), viewer)
-	if rr.Code != http.StatusForbidden {
-		t.Fatalf("want 403, got %d: %s", rr.Code, rr.Body)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("want 200, got %d: %s", rr.Code, rr.Body)
 	}
 }
 

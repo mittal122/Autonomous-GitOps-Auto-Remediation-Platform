@@ -115,13 +115,14 @@ func TestSaveGitOpsIntegration_RejectsMissingRepoPath(t *testing.T) {
 	}
 }
 
-func TestSaveGitOpsIntegration_ViewerForbidden(t *testing.T) {
+// Saving Settings-page config is viewer-level by design — see api.go's role-tiering note.
+func TestSaveGitOpsIntegration_ViewerAllowed(t *testing.T) {
 	srv := newTestServerWithGitOps(t, &fakeGitOpsReloader{}, true)
 	viewer := makeBearer([]string{"viewer"})
 	body := []byte(`{"repo_path":"/data/gitops"}`)
 	rr := doRequest(t, srv.Handler(""), http.MethodPost, "/api/v1/integrations/gitops", body, viewer)
-	if rr.Code != http.StatusForbidden {
-		t.Fatalf("want 403, got %d: %s", rr.Code, rr.Body)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("want 200, got %d: %s", rr.Code, rr.Body)
 	}
 }
 

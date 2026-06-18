@@ -192,12 +192,13 @@ func TestSaveLokiIntegration_RejectsBadDuration(t *testing.T) {
 	}
 }
 
-func TestSaveLokiIntegration_ViewerForbidden(t *testing.T) {
+// Saving Settings-page config is viewer-level by design — see api.go's role-tiering note.
+func TestSaveLokiIntegration_ViewerAllowed(t *testing.T) {
 	srv := newTestServerWithIntegrations(t, &fakeIntegrationsControl{}, true)
 	body := []byte(`{"addr":"http://loki:3100"}`)
 	rr := doRequest(t, srv.Handler(""), http.MethodPost, "/api/v1/integrations/loki", body, makeBearer([]string{"viewer"}))
-	if rr.Code != http.StatusForbidden {
-		t.Fatalf("want 403, got %d: %s", rr.Code, rr.Body)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("want 200, got %d: %s", rr.Code, rr.Body)
 	}
 }
 

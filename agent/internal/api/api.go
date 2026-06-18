@@ -173,38 +173,46 @@ func (s *Server) Handler(webUIDir string) http.Handler {
 	// Paginated audit log (viewer+).
 	mux.Handle("GET /api/v1/audit", s.auth.enforce(s.handle(s.handleListAudit), RoleViewer))
 
-	// Zero-config integrations: aggregate summary (dashboard + setup wizard first-run check).
+	// Zero-config integrations (Settings page). Role tiers are by actual blast radius,
+	// not uniformly "operator": saving Loki/LLM/Notifications/GitOps settings only
+	// writes to the local encrypted settings DB and reconfigures an in-process client —
+	// no cluster mutation, no remediation — so it's viewer-level like every other read,
+	// and reachable in default dev mode (no OIDC) where only viewer is ever granted.
+	// Alertmanager's "apply" actually creates a Kubernetes object, and Safety Controls'
+	// Apply Enabled flips whether the system can make real changes at all, so those stay
+	// at operator/admin — same tier as approvals and the kill switch.
+
+	// Aggregate summary (dashboard + setup wizard first-run check).
 	mux.Handle("GET /api/v1/integrations", s.auth.enforce(s.handle(s.handleGetIntegrationsSummary), RoleViewer))
 
-	// Zero-config integrations: Kubernetes (read-only — surfaces existing detection).
+	// Kubernetes (read-only — surfaces existing detection).
 	mux.Handle("GET /api/v1/integrations/kubernetes", s.auth.enforce(s.handle(s.handleGetKubernetesIntegration), RoleViewer))
 
-	// Zero-config integrations: secret reveal (Show/Hide) — admin-only, audited.
+	// Secret reveal (Show/Hide) — admin-only, audited.
 	mux.Handle("POST /api/v1/integrations/reveal", s.auth.enforce(s.handle(s.handleReveal), RoleAdmin))
 
-	// Zero-config integrations: AI Provider / LLM (viewer reads/tests, operator writes).
+	// AI Provider / LLM.
 	mux.Handle("GET /api/v1/integrations/llm", s.auth.enforce(s.handle(s.handleGetLLMIntegration), RoleViewer))
-	mux.Handle("POST /api/v1/integrations/llm", s.auth.enforce(s.handle(s.handleSaveLLMIntegration), RoleOperator))
+	mux.Handle("POST /api/v1/integrations/llm", s.auth.enforce(s.handle(s.handleSaveLLMIntegration), RoleViewer))
 	mux.Handle("POST /api/v1/integrations/llm/test", s.auth.enforce(s.handle(s.handleTestLLMIntegration), RoleViewer))
 
-	// Zero-config integrations: Notifications (viewer reads/tests, operator writes).
+	// Notifications.
 	mux.Handle("GET /api/v1/integrations/notifications", s.auth.enforce(s.handle(s.handleGetNotificationsIntegration), RoleViewer))
-	mux.Handle("POST /api/v1/integrations/notifications", s.auth.enforce(s.handle(s.handleSaveNotificationsIntegration), RoleOperator))
+	mux.Handle("POST /api/v1/integrations/notifications", s.auth.enforce(s.handle(s.handleSaveNotificationsIntegration), RoleViewer))
 	mux.Handle("POST /api/v1/integrations/notifications/test", s.auth.enforce(s.handle(s.handleTestNotificationsIntegration), RoleViewer))
 
-	// Zero-config integrations: Safety Controls (viewer reads; admin toggles — same
-	// privilege level as the existing kill-switch endpoint).
+	// Safety Controls — Apply Enabled toggle stays admin-only (see note above).
 	mux.Handle("GET /api/v1/integrations/safety", s.auth.enforce(s.handle(s.handleGetSafety), RoleViewer))
 	mux.Handle("POST /api/v1/integrations/safety", s.auth.enforce(s.handle(s.handleSetSafety), RoleAdmin))
 
-	// Zero-config integrations: GitOps & Remediation (viewer reads/tests, operator writes).
+	// GitOps & Remediation.
 	mux.Handle("GET /api/v1/integrations/gitops", s.auth.enforce(s.handle(s.handleGetGitOpsIntegration), RoleViewer))
-	mux.Handle("POST /api/v1/integrations/gitops", s.auth.enforce(s.handle(s.handleSaveGitOpsIntegration), RoleOperator))
+	mux.Handle("POST /api/v1/integrations/gitops", s.auth.enforce(s.handle(s.handleSaveGitOpsIntegration), RoleViewer))
 	mux.Handle("POST /api/v1/integrations/gitops/test", s.auth.enforce(s.handle(s.handleTestGitOpsIntegration), RoleViewer))
 
-	// Zero-config integrations: Loki (viewer reads, operator writes).
+	// Loki.
 	mux.Handle("GET /api/v1/integrations/loki", s.auth.enforce(s.handle(s.handleGetLokiIntegration), RoleViewer))
-	mux.Handle("POST /api/v1/integrations/loki", s.auth.enforce(s.handle(s.handleSaveLokiIntegration), RoleOperator))
+	mux.Handle("POST /api/v1/integrations/loki", s.auth.enforce(s.handle(s.handleSaveLokiIntegration), RoleViewer))
 	mux.Handle("POST /api/v1/integrations/loki/test", s.auth.enforce(s.handle(s.handleTestLokiIntegration), RoleViewer))
 
 	// Zero-config integrations: Alertmanager (viewer reads/tests, operator applies).

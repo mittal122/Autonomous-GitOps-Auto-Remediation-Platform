@@ -146,13 +146,16 @@ func TestSaveLLMIntegration_EmptyProviderDisables(t *testing.T) {
 	}
 }
 
-func TestSaveLLMIntegration_ViewerForbidden(t *testing.T) {
+// Saving Settings-page config is viewer-level by design — it only writes to the
+// local encrypted settings DB and reconfigures an in-process client, so it must
+// work in default dev mode (no OIDC), where only viewer is ever granted.
+func TestSaveLLMIntegration_ViewerAllowed(t *testing.T) {
 	srv := newTestServerWithLLM(t, &fakeLLMConfigPusher{}, true)
 	viewer := makeBearer([]string{"viewer"})
 	body := []byte(`{"provider":"nim","api_key":"x"}`)
 	rr := doRequest(t, srv.Handler(""), http.MethodPost, "/api/v1/integrations/llm", body, viewer)
-	if rr.Code != http.StatusForbidden {
-		t.Fatalf("want 403, got %d: %s", rr.Code, rr.Body)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("want 200, got %d: %s", rr.Code, rr.Body)
 	}
 }
 
