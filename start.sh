@@ -22,8 +22,10 @@ DIAGNOSER_DIR="$PROJECT_ROOT/diagnoser"
 LEARNER_DIR="$PROJECT_ROOT/learner"
 DIAGNOSER_VENV="$DIAGNOSER_DIR/.venv"
 LEARNER_VENV="$LEARNER_DIR/.venv"
-WEB_UI_DIR="$PROJECT_ROOT/web-ui"
-WEB_UI_DIST="$WEB_UI_DIR/dist"
+# Named WEBUI_SRC_DIR (not WEB_UI_DIR) so sourcing .env below can't clobber it —
+# WEB_UI_DIR is also the Go agent's own env var name (defaults to empty in .env.example).
+WEBUI_SRC_DIR="$PROJECT_ROOT/web-ui"
+WEB_UI_DIST="$WEBUI_SRC_DIR/dist"
 
 FORCE_REBUILD="${FORCE_REBUILD:-false}"
 [[ "${1:-}" == "--rebuild" ]] && FORCE_REBUILD=true
@@ -263,8 +265,8 @@ echo ""
 
 step "── web UI ───────────────────────────────────────────"
 
-WEB_HASH_MARKER="$WEB_UI_DIR/.build_hash"
-WEB_SRC_HASH=$(file_hash "$WEB_UI_DIR/package.json" 2>/dev/null || echo "nohash")
+WEB_HASH_MARKER="$WEBUI_SRC_DIR/.build_hash"
+WEB_SRC_HASH=$(file_hash "$WEBUI_SRC_DIR/package.json" 2>/dev/null || echo "nohash")
 
 if [[ ! -d "$WEB_UI_DIST" ]]; then
     WEB_BUILD_NEEDED=true
@@ -285,7 +287,7 @@ if [[ "$WEB_BUILD_NEEDED" == "true" ]]; then
         WEB_UI_DIST=""
     else
         (
-            cd "$WEB_UI_DIR"
+            cd "$WEBUI_SRC_DIR"
             # Install node_modules only if missing or package.json changed
             if [[ ! -d node_modules ]] || [[ "$FORCE_REBUILD" == "true" ]]; then
                 info "  Installing npm packages..."
