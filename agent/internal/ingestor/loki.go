@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/autosre/agent/internal/contracts"
@@ -97,6 +98,29 @@ type lokiSource struct {
 	client   *http.Client
 	lastSeen time.Time
 	log      *slog.Logger
+
+	mu              sync.Mutex
+	lastPollAt      time.Time
+	lastErr         error
+	lastSignalCount int
+}
+
+// lokiSourceStatus is a point-in-time snapshot of the poller's health.
+type lokiSourceStatus struct {
+	lastPollAt      time.Time
+	lastErr         error
+	lastSignalCount int
+}
+
+// status returns the most recent poll's outcome.
+func (l *lokiSource) status() lokiSourceStatus {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return lokiSourceStatus{
+		lastPollAt:      l.lastPollAt,
+		lastErr:         l.lastErr,
+		lastSignalCount: l.lastSignalCount,
+	}
 }
 
 func newLokiSource(cfg LokiConfig, log *slog.Logger) *lokiSource {
@@ -131,6 +155,15 @@ func (l *lokiSource) Start(ctx context.Context, out chan<- contracts.Signal) {
 			return
 		case <-ticker.C:
 			signals, err := l.poll(ctx)
+
+			l.mu.Lock()
+			l.lastPollAt = time.Now()
+			l.lastErr = err
+			if err == nil {
+				l.lastSignalCount = len(signals)
+			}
+			l.mu.Unlock()
+
 			if err != nil {
 				l.log.Warn("loki ingestor: poll error", "error", err)
 				continue
