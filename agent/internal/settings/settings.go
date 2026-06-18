@@ -99,6 +99,100 @@ func (s *Store) DeleteLokiSettings(ctx context.Context) error {
 	return s.db.DeleteSetting(ctx, keyLokiSettings)
 }
 
+// LLMSettings configures which LLM provider the diagnoser uses for AI-based diagnosis.
+// Provider is "nim", "gemini", or "" (rule-based fallback only, no API key needed).
+type LLMSettings struct {
+	Provider       string `json:"provider"`
+	APIKey         string `json:"api_key,omitempty"`
+	Model          string `json:"model,omitempty"`
+	TimeoutSeconds int    `json:"timeout_seconds,omitempty"`
+}
+
+const keyLLMSettings = "llm.settings"
+
+// LoadLLMSettings returns the persisted LLM settings. ok is false when nothing has been saved yet.
+func (s *Store) LoadLLMSettings(ctx context.Context) (LLMSettings, bool, error) {
+	var out LLMSettings
+	ok, err := s.getJSON(ctx, keyLLMSettings, &out)
+	if err != nil || !ok {
+		return LLMSettings{}, false, err
+	}
+	return out, true, nil
+}
+
+// SaveLLMSettings encrypts and persists settings, overwriting any previous value.
+func (s *Store) SaveLLMSettings(ctx context.Context, settings LLMSettings) error {
+	return s.putJSON(ctx, keyLLMSettings, settings)
+}
+
+// DeleteLLMSettings removes any persisted LLM settings (reverts to rule-based fallback).
+func (s *Store) DeleteLLMSettings(ctx context.Context) error {
+	return s.db.DeleteSetting(ctx, keyLLMSettings)
+}
+
+// NotifierSettings configures Slack and PagerDuty notification credentials.
+type NotifierSettings struct {
+	SlackBotToken       string `json:"slack_bot_token,omitempty"`
+	SlackSigningSecret  string `json:"slack_signing_secret,omitempty"`
+	SlackChannelID      string `json:"slack_channel_id,omitempty"`
+	PagerDutyRoutingKey string `json:"pagerduty_routing_key,omitempty"`
+}
+
+const keyNotifierSettings = "notifier.settings"
+
+// LoadNotifierSettings returns the persisted notifier settings. ok is false when nothing has been saved yet.
+func (s *Store) LoadNotifierSettings(ctx context.Context) (NotifierSettings, bool, error) {
+	var out NotifierSettings
+	ok, err := s.getJSON(ctx, keyNotifierSettings, &out)
+	if err != nil || !ok {
+		return NotifierSettings{}, false, err
+	}
+	return out, true, nil
+}
+
+// SaveNotifierSettings encrypts and persists settings, overwriting any previous value.
+func (s *Store) SaveNotifierSettings(ctx context.Context, settings NotifierSettings) error {
+	return s.putJSON(ctx, keyNotifierSettings, settings)
+}
+
+// DeleteNotifierSettings removes any persisted notifier settings (degrades to log-only).
+func (s *Store) DeleteNotifierSettings(ctx context.Context) error {
+	return s.db.DeleteSetting(ctx, keyNotifierSettings)
+}
+
+// GitOpsSettings configures the GitOps remediation repo and git push credentials.
+type GitOpsSettings struct {
+	RepoPath   string `json:"repo_path,omitempty"`
+	RemoteURL  string `json:"remote_url,omitempty"`
+	AuthToken  string `json:"auth_token,omitempty"`
+	SSHKeyPath string `json:"ssh_key_path,omitempty"`
+	BotName    string `json:"bot_name,omitempty"`
+	BotEmail   string `json:"bot_email,omitempty"`
+	Branch     string `json:"branch,omitempty"`
+}
+
+const keyGitOpsSettings = "gitops.settings"
+
+// LoadGitOpsSettings returns the persisted GitOps settings. ok is false when nothing has been saved yet.
+func (s *Store) LoadGitOpsSettings(ctx context.Context) (GitOpsSettings, bool, error) {
+	var out GitOpsSettings
+	ok, err := s.getJSON(ctx, keyGitOpsSettings, &out)
+	if err != nil || !ok {
+		return GitOpsSettings{}, false, err
+	}
+	return out, true, nil
+}
+
+// SaveGitOpsSettings encrypts and persists settings, overwriting any previous value.
+func (s *Store) SaveGitOpsSettings(ctx context.Context, settings GitOpsSettings) error {
+	return s.putJSON(ctx, keyGitOpsSettings, settings)
+}
+
+// DeleteGitOpsSettings removes any persisted GitOps settings.
+func (s *Store) DeleteGitOpsSettings(ctx context.Context) error {
+	return s.db.DeleteSetting(ctx, keyGitOpsSettings)
+}
+
 // ---------------------------------------------------------------------------
 // Generic encrypt/decrypt helpers
 // ---------------------------------------------------------------------------

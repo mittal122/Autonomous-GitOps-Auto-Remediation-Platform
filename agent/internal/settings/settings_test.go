@@ -117,6 +117,135 @@ func TestLokiSettings_RoundTrip(t *testing.T) {
 	}
 }
 
+func TestLLMSettings_RoundTrip(t *testing.T) {
+	db := openTestStore(t)
+	key, err := settings.EnsureMasterKey(filepath.Join(t.TempDir(), "master.key"))
+	if err != nil {
+		t.Fatalf("EnsureMasterKey failed: %v", err)
+	}
+	s, err := settings.New(db, key)
+	if err != nil {
+		t.Fatalf("settings.New failed: %v", err)
+	}
+	ctx := context.Background()
+
+	if _, ok, err := s.LoadLLMSettings(ctx); err != nil || ok {
+		t.Fatalf("expected no settings before save, got ok=%v err=%v", ok, err)
+	}
+
+	want := settings.LLMSettings{
+		Provider:       "nim",
+		APIKey:         "nvapi-secret-value",
+		Model:          "meta/llama-3.3-70b-instruct",
+		TimeoutSeconds: 30,
+	}
+	if err := s.SaveLLMSettings(ctx, want); err != nil {
+		t.Fatalf("SaveLLMSettings failed: %v", err)
+	}
+
+	got, ok, err := s.LoadLLMSettings(ctx)
+	if err != nil || !ok || got != want {
+		t.Fatalf("round trip mismatch: ok=%v err=%v got=%+v want=%+v", ok, err, got, want)
+	}
+
+	raw, ok, err := db.GetSetting(ctx, "llm.settings")
+	if err != nil || !ok {
+		t.Fatalf("GetSetting failed: ok=%v err=%v", ok, err)
+	}
+	if strings.Contains(string(raw), want.APIKey) {
+		t.Error("stored bytes contain the plaintext API key — encryption is not effective")
+	}
+
+	if err := s.DeleteLLMSettings(ctx); err != nil {
+		t.Fatalf("DeleteLLMSettings failed: %v", err)
+	}
+	if _, ok, err := s.LoadLLMSettings(ctx); err != nil || ok {
+		t.Fatalf("expected no settings after delete, got ok=%v err=%v", ok, err)
+	}
+}
+
+func TestNotifierSettings_RoundTrip(t *testing.T) {
+	db := openTestStore(t)
+	key, err := settings.EnsureMasterKey(filepath.Join(t.TempDir(), "master.key"))
+	if err != nil {
+		t.Fatalf("EnsureMasterKey failed: %v", err)
+	}
+	s, err := settings.New(db, key)
+	if err != nil {
+		t.Fatalf("settings.New failed: %v", err)
+	}
+	ctx := context.Background()
+
+	want := settings.NotifierSettings{
+		SlackBotToken:       "xoxb-secret-token",
+		SlackSigningSecret:  "signing-secret",
+		SlackChannelID:      "C01234ABCDE",
+		PagerDutyRoutingKey: "01234567890123456789012345678901",
+	}
+	if err := s.SaveNotifierSettings(ctx, want); err != nil {
+		t.Fatalf("SaveNotifierSettings failed: %v", err)
+	}
+
+	got, ok, err := s.LoadNotifierSettings(ctx)
+	if err != nil || !ok || got != want {
+		t.Fatalf("round trip mismatch: ok=%v err=%v got=%+v want=%+v", ok, err, got, want)
+	}
+
+	raw, _, _ := db.GetSetting(ctx, "notifier.settings")
+	if strings.Contains(string(raw), want.SlackBotToken) {
+		t.Error("stored bytes contain the plaintext Slack bot token — encryption is not effective")
+	}
+
+	if err := s.DeleteNotifierSettings(ctx); err != nil {
+		t.Fatalf("DeleteNotifierSettings failed: %v", err)
+	}
+	if _, ok, err := s.LoadNotifierSettings(ctx); err != nil || ok {
+		t.Fatalf("expected no settings after delete, got ok=%v err=%v", ok, err)
+	}
+}
+
+func TestGitOpsSettings_RoundTrip(t *testing.T) {
+	db := openTestStore(t)
+	key, err := settings.EnsureMasterKey(filepath.Join(t.TempDir(), "master.key"))
+	if err != nil {
+		t.Fatalf("EnsureMasterKey failed: %v", err)
+	}
+	s, err := settings.New(db, key)
+	if err != nil {
+		t.Fatalf("settings.New failed: %v", err)
+	}
+	ctx := context.Background()
+
+	want := settings.GitOpsSettings{
+		RepoPath:  "/data/gitops",
+		RemoteURL: "https://github.com/example/gitops-config.git",
+		AuthToken: "ghp_secrettoken",
+		BotName:   "autosre-bot",
+		BotEmail:  "autosre-bot@localhost",
+		Branch:    "main",
+	}
+	if err := s.SaveGitOpsSettings(ctx, want); err != nil {
+		t.Fatalf("SaveGitOpsSettings failed: %v", err)
+	}
+
+	got, ok, err := s.LoadGitOpsSettings(ctx)
+	if err != nil || !ok || got != want {
+		t.Fatalf("round trip mismatch: ok=%v err=%v got=%+v want=%+v", ok, err, got, want)
+	}
+
+	raw, _, _ := db.GetSetting(ctx, "gitops.settings")
+	if strings.Contains(string(raw), want.AuthToken) {
+		t.Error("stored bytes contain the plaintext auth token — encryption is not effective")
+	}
+
+	if err := s.DeleteGitOpsSettings(ctx); err != nil {
+		t.Fatalf("DeleteGitOpsSettings failed: %v", err)
+	}
+	if _, ok, err := s.LoadGitOpsSettings(ctx); err != nil || ok {
+		t.Fatalf("expected no settings after delete, got ok=%v err=%v", ok, err)
+	}
+}
+
 func TestLokiSettings_WrongKeyFailsToDecrypt(t *testing.T) {
 	db := openTestStore(t)
 	key1, _ := settings.EnsureMasterKey(filepath.Join(t.TempDir(), "key1"))
