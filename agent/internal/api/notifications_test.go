@@ -73,6 +73,34 @@ func TestSaveNotificationsIntegration_OmittedSecretKeepsExisting(t *testing.T) {
 	}
 }
 
+func TestSaveNotificationsIntegration_PagerDutyOnlySavePreservesSlackChannel(t *testing.T) {
+	srv := newTestServerWithLLM(t, nil, true)
+	operator := makeBearer([]string{"operator"})
+
+	first := []byte(`{"slack_bot_token":"xoxb-x","slack_channel_id":"C12345"}`)
+	if rr := doRequest(t, srv.Handler(""), http.MethodPost, "/api/v1/integrations/notifications", first, operator); rr.Code != http.StatusOK {
+		t.Fatalf("first save failed: %d: %s", rr.Code, rr.Body)
+	}
+
+	// PagerDuty-only save must not wipe the previously saved Slack channel ID.
+	second := []byte(`{"pagerduty_routing_key":"01234567890123456789012345678901"}`)
+	if rr := doRequest(t, srv.Handler(""), http.MethodPost, "/api/v1/integrations/notifications", second, operator); rr.Code != http.StatusOK {
+		t.Fatalf("second save failed: %d: %s", rr.Code, rr.Body)
+	}
+
+	getRR := doRequest(t, srv.Handler(""), http.MethodGet, "/api/v1/integrations/notifications", nil, operator)
+	var got notificationsIntegrationResponse
+	if err := json.Unmarshal(getRR.Body.Bytes(), &got); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if got.SlackChannelID != "C12345" {
+		t.Errorf("expected slack_channel_id to survive a pagerduty-only save, got %q", got.SlackChannelID)
+	}
+	if !got.HasPagerDutyRoutingKey {
+		t.Error("expected pagerduty routing key to be saved")
+	}
+}
+
 func TestSaveNotificationsIntegration_ViewerForbidden(t *testing.T) {
 	srv := newTestServerWithLLM(t, nil, true)
 	viewer := makeBearer([]string{"viewer"})

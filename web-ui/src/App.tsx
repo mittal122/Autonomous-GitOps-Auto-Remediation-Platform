@@ -1,4 +1,4 @@
-import { BrowserRouter, Routes, Route } from 'react-router-dom'
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { ToastProvider } from './components/Toast'
 import { ErrorBoundary } from './components/ErrorBoundary'
 import Layout from './components/Layout'
@@ -10,7 +10,7 @@ import Status from './pages/Status'
 import AuditLog from './pages/AuditLog'
 import Analytics from './pages/Analytics'
 import Login from './pages/Login'
-import Integrations from './pages/Integrations'
+import Settings from './pages/Settings'
 import Setup from './pages/Setup'
 
 export default function App() {
@@ -28,7 +28,8 @@ export default function App() {
             <Route path="/status" element={<Status />} />
             <Route path="/audit" element={<AuditLog />} />
             <Route path="/analytics" element={<Analytics />} />
-            <Route path="/integrations" element={<Integrations />} />
+            <Route path="/settings" element={<Settings />} />
+            <Route path="/integrations" element={<Navigate to="/settings" replace />} />
             <Route path="/setup" element={<Setup />} />
             <Route path="/login" element={<Login />} />
           </Routes>

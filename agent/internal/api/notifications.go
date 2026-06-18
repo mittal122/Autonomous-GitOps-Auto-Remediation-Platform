@@ -52,12 +52,14 @@ func (s *Server) handleGetNotificationsIntegration(w http.ResponseWriter, r *htt
 // ---------------------------------------------------------------------------
 
 // notificationsRequest mirrors NotifierSettings but with pointer fields for the
-// secrets, so omitted JSON keys mean "keep the existing saved value" rather than
-// "clear it".
+// secrets and SlackChannelID, so omitted JSON keys mean "keep the existing
+// saved value" rather than "clear it" — important since this lets a
+// PagerDuty-only save coexist with a previously saved Slack channel without
+// wiping it.
 type notificationsRequest struct {
 	SlackBotToken       *string `json:"slack_bot_token"`
 	SlackSigningSecret  *string `json:"slack_signing_secret"`
-	SlackChannelID      string  `json:"slack_channel_id"`
+	SlackChannelID      *string `json:"slack_channel_id"`
 	PagerDutyRoutingKey *string `json:"pagerduty_routing_key"`
 }
 
@@ -84,7 +86,7 @@ func (s *Server) handleSaveNotificationsIntegration(w http.ResponseWriter, r *ht
 	saved := settings.NotifierSettings{
 		SlackBotToken:       resolve(req.SlackBotToken, existing.SlackBotToken),
 		SlackSigningSecret:  resolve(req.SlackSigningSecret, existing.SlackSigningSecret),
-		SlackChannelID:      req.SlackChannelID,
+		SlackChannelID:      resolve(req.SlackChannelID, existing.SlackChannelID),
 		PagerDutyRoutingKey: resolve(req.PagerDutyRoutingKey, existing.PagerDutyRoutingKey),
 	}
 	if err := s.settings.SaveNotifierSettings(r.Context(), saved); err != nil {

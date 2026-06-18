@@ -147,10 +147,19 @@ export interface AlertmanagerIntegration {
   operator_detected: boolean
 }
 
+export interface SafetyStatus {
+  apply_enabled: boolean
+  kill_switch_engaged: boolean
+}
+
 export interface IntegrationsSummary {
   loki: { configured: boolean; status: LokiStatus }
   alertmanager: { webhook_url: string; operator_detected: boolean }
   kubernetes: KubernetesStatus
+  llm: { configured: boolean; provider?: string }
+  notifications: { slack_configured: boolean; pagerduty_configured: boolean }
+  gitops: { configured: boolean }
+  safety: SafetyStatus
   any_configured: boolean
 }
 
@@ -161,6 +170,74 @@ export interface SaveLokiRequest {
   timeout?: string
   auth_header?: string
 }
+
+export interface LLMIntegration {
+  configured: boolean
+  provider?: string
+  model?: string
+  timeout_seconds?: number
+  has_api_key: boolean
+}
+
+export interface SaveLLMRequest {
+  provider: string // "nim" | "gemini" | ""
+  api_key?: string
+  model?: string
+  timeout_seconds?: number
+}
+
+export interface LLMTestResult {
+  ok: boolean
+  message: string
+}
+
+export interface NotificationsIntegration {
+  configured: boolean
+  slack_channel_id?: string
+  has_slack_bot_token: boolean
+  has_slack_signing_secret: boolean
+  has_pagerduty_routing_key: boolean
+}
+
+export interface SaveNotificationsRequest {
+  slack_bot_token?: string
+  slack_signing_secret?: string
+  slack_channel_id?: string
+  pagerduty_routing_key?: string
+}
+
+export interface NotificationsTestResult {
+  ok: boolean
+  message: string
+}
+
+export interface GitOpsIntegration {
+  configured: boolean
+  repo_path?: string
+  remote_url?: string
+  branch?: string
+  bot_name?: string
+  bot_email?: string
+  has_auth_token: boolean
+  has_ssh_key_path: boolean
+}
+
+export interface SaveGitOpsRequest {
+  repo_path: string
+  remote_url?: string
+  auth_token?: string
+  ssh_key_path?: string
+  bot_name?: string
+  bot_email?: string
+  branch?: string
+}
+
+export interface GitOpsTestResult {
+  ok: boolean
+  message: string
+}
+
+export type RevealCategory = 'llm' | 'notifications' | 'gitops' | 'loki'
 
 // ---------------------------------------------------------------------------
 // API calls
@@ -199,4 +276,26 @@ export const api = {
   applyAlertmanagerIntegration: () =>
     post<{ applied: boolean; reason: string; webhook_url: string }>('/integrations/alertmanager/apply'),
   testAlertmanagerIntegration: () => post<{ ok: boolean; message: string }>('/integrations/alertmanager/test'),
+
+  getLLMIntegration: () => get<LLMIntegration>('/integrations/llm'),
+  saveLLMIntegration: (req: SaveLLMRequest) => post<{ saved: boolean; provider: string }>('/integrations/llm', req),
+  testLLMIntegration: (req: SaveLLMRequest) => post<LLMTestResult>('/integrations/llm/test', req),
+
+  getNotificationsIntegration: () => get<NotificationsIntegration>('/integrations/notifications'),
+  saveNotificationsIntegration: (req: SaveNotificationsRequest) =>
+    post<{ saved: boolean }>('/integrations/notifications', req),
+  testNotificationsIntegration: (channel: 'slack' | 'pagerduty', creds: { slack_bot_token?: string; pagerduty_routing_key?: string }) =>
+    post<NotificationsTestResult>('/integrations/notifications/test', { channel, ...creds }),
+
+  getGitOpsIntegration: () => get<GitOpsIntegration>('/integrations/gitops'),
+  saveGitOpsIntegration: (req: SaveGitOpsRequest) => post<{ saved: boolean; repo_path: string }>('/integrations/gitops', req),
+  testGitOpsIntegration: (req: { remote_url: string; auth_token?: string; ssh_key_path?: string }) =>
+    post<GitOpsTestResult>('/integrations/gitops/test', req),
+
+  getSafety: () => get<SafetyStatus>('/integrations/safety'),
+  setSafety: (applyEnabled: boolean, reason: string) =>
+    post<SafetyStatus>('/integrations/safety', { apply_enabled: applyEnabled, reason }),
+
+  revealSecret: (category: RevealCategory, field: string) =>
+    post<{ value: string }>('/integrations/reveal', { category, field }),
 }

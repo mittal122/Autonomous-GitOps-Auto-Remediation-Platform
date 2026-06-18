@@ -86,7 +86,7 @@ function LokiStep({ onNext, onBack }: { onNext: () => void; onBack: () => void }
       <p className="text-gray-600 mb-4 text-sm">
         Loki lets AutoSRE detect failures from your application logs (OOMKilled, CrashLoopBackOff,
         DNS errors, and more). Leave this blank and click Next to skip it for now — you can always
-        configure it later from the Integrations page.
+        configure it later from the Settings page.
       </p>
       <input
         className="w-full border border-gray-300 rounded px-3 py-2 text-sm mb-2"
@@ -211,7 +211,7 @@ function DoneStep({ onFinish }: { onFinish: () => void }) {
       <h2 className="text-xl font-bold mb-2">Setup complete</h2>
       <p className="text-gray-600 mb-4 text-sm">
         AutoSRE is now watching for incidents. You can revisit and change any of this at any time
-        from the Integrations page.
+        from the Settings page.
       </p>
       <button onClick={onFinish} className="px-4 py-2 bg-indigo-600 text-white rounded text-sm hover:bg-indigo-700">
         Go to Dashboard
