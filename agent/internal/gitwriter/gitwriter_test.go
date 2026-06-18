@@ -297,3 +297,43 @@ func TestGetPreviousValue(t *testing.T) {
 		t.Errorf("previous image: got %q, want %q", prev, "myapp/payment-service:v1.4.2")
 	}
 }
+
+// ---------------------------------------------------------------------------
+// Reload
+// ---------------------------------------------------------------------------
+
+func TestReload_SwapsRepoPathWithoutRestart(t *testing.T) {
+	repo1 := initRepo(t, "apps/production/payment-service.yaml", deploymentFixture)
+	repo2 := initRepo(t, "apps/production/payment-service.yaml", deploymentFixture)
+
+	w := newWriter(t, repo1)
+
+	if _, err := w.EditField(context.Background(), "production", "payment-service", "Deployment",
+		"spec.replicas", "5", false); err != nil {
+		t.Fatalf("EditField against repo1 failed: %v", err)
+	}
+
+	if err := w.Reload(context.Background(), gitwriter.Config{
+		RepoPath: repo2, BotName: "autosre-bot", BotEmail: "bot@autosre.dev", Branch: "main",
+	}); err != nil {
+		t.Fatalf("Reload failed: %v", err)
+	}
+
+	res, err := w.EditField(context.Background(), "production", "payment-service", "Deployment",
+		"spec.replicas", "7", false)
+	if err != nil {
+		t.Fatalf("EditField against repo2 (post-reload) failed: %v", err)
+	}
+	if res.OldValue != "3" {
+		t.Errorf("expected repo2's original replicas (3, untouched by the repo1 edit), got %q", res.OldValue)
+	}
+
+	// repo1 must be unaffected by the second edit.
+	val1, err := w.GetCurrentValue("production", "payment-service", "Deployment", "spec.replicas")
+	if err != nil {
+		t.Fatalf("GetCurrentValue (post-reload, against repo2) failed: %v", err)
+	}
+	if val1 != "7" {
+		t.Errorf("expected current writer (now pointed at repo2) to show 7, got %q", val1)
+	}
+}

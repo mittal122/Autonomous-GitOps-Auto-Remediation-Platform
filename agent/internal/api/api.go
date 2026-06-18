@@ -62,6 +62,7 @@ type Server struct {
 	k8s         KubernetesControl   // nil when Kubernetes API access isn't wired
 	llm         LLMConfigPusher     // nil when the diagnoser client isn't wired
 	notifReload NotifierReloader    // nil when the notifier isn't wired
+	gitops      GitOpsReloader      // nil when the gitwriter isn't wired
 	settings    *settings.Store     // nil when persistence is unavailable
 	auth        *authMiddleware
 	rl          *ipRateLimiter
@@ -113,6 +114,7 @@ func NewServer(
 	ing IntegrationsControl,
 	k8s KubernetesControl,
 	llm LLMConfigPusher,
+	gitops GitOpsReloader,
 	settingsStore *settings.Store,
 	log *slog.Logger,
 ) *Server {
@@ -128,6 +130,7 @@ func NewServer(
 		k8s:         k8s,
 		llm:         llm,
 		notifReload: notif,
+		gitops:      gitops,
 		settings:    settingsStore,
 		auth:        newAuthMiddleware(ctx, cfg, log),
 		rl:          newIPRateLimiter(),
@@ -184,6 +187,11 @@ func (s *Server) Handler(webUIDir string) http.Handler {
 	mux.Handle("GET /api/v1/integrations/notifications", s.auth.enforce(s.handle(s.handleGetNotificationsIntegration), RoleViewer))
 	mux.Handle("POST /api/v1/integrations/notifications", s.auth.enforce(s.handle(s.handleSaveNotificationsIntegration), RoleOperator))
 	mux.Handle("POST /api/v1/integrations/notifications/test", s.auth.enforce(s.handle(s.handleTestNotificationsIntegration), RoleViewer))
+
+	// Zero-config integrations: GitOps & Remediation (viewer reads/tests, operator writes).
+	mux.Handle("GET /api/v1/integrations/gitops", s.auth.enforce(s.handle(s.handleGetGitOpsIntegration), RoleViewer))
+	mux.Handle("POST /api/v1/integrations/gitops", s.auth.enforce(s.handle(s.handleSaveGitOpsIntegration), RoleOperator))
+	mux.Handle("POST /api/v1/integrations/gitops/test", s.auth.enforce(s.handle(s.handleTestGitOpsIntegration), RoleViewer))
 
 	// Zero-config integrations: Loki (viewer reads, operator writes).
 	mux.Handle("GET /api/v1/integrations/loki", s.auth.enforce(s.handle(s.handleGetLokiIntegration), RoleViewer))

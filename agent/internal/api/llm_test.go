@@ -63,7 +63,7 @@ func newTestServerWithLLM(t *testing.T, llm LLMConfigPusher, oidcEnabled bool) *
 		OIDCEnabled:       oidcEnabled,
 		OIDCRolesClaimKey: "roles",
 	}, &fakeIncidentLister{}, &fakeControlPlane{},
-		&audit.MemorySink{}, notif, pol, "", nil, nil, llm, settingsStore, log)
+		&audit.MemorySink{}, notif, pol, "", nil, nil, llm, nil, settingsStore, log)
 }
 
 func TestGetLLMIntegration_NotConfigured(t *testing.T) {

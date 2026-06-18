@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/go-git/go-git/v5"
@@ -44,6 +45,7 @@ type Result struct {
 // Writer is the shared engine for structure-preserving YAML edits committed
 // via go-git. It never calls the Kubernetes API.
 type Writer struct {
+	mu  sync.RWMutex // guards cfg; see snapshotCfg and Reload
 	cfg Config
 	log *slog.Logger
 }
@@ -54,50 +56,75 @@ func New(cfg Config, log *slog.Logger) *Writer {
 	return &Writer{cfg: cfg, log: log}
 }
 
+// snapshotCfg returns a copy of the current config, safe to read without holding mu.
+func (w *Writer) snapshotCfg() Config {
+	w.mu.RLock()
+	defer w.mu.RUnlock()
+	return w.cfg
+}
+
+// Reload swaps the active config in place and re-runs EnsureRepo if a repo path
+// is configured, so a newly saved RepoPath/RemoteURL takes effect without a
+// process restart. Returns an error if EnsureRepo fails with the new config —
+// callers should treat that as a save/test failure, but the old config is
+// already replaced (the caller is expected to have validated reachability
+// before calling Reload, e.g. via a connectivity test).
+func (w *Writer) Reload(ctx context.Context, cfg Config) error {
+	w.mu.Lock()
+	w.cfg = cfg
+	w.mu.Unlock()
+
+	if cfg.RepoPath == "" {
+		return nil
+	}
+	return w.EnsureRepo(ctx)
+}
+
 // EnsureRepo checks whether cfg.RepoPath is a valid git repository.
 // If not, and if cfg.RemoteURL is set, it clones the remote repository.
 // Call once at startup before the first EditField; safe to call on every start
 // (it's a no-op when the repo already exists).
 func (w *Writer) EnsureRepo(ctx context.Context) error {
-	if w.cfg.RepoPath == "" {
+	cfg := w.snapshotCfg()
+	if cfg.RepoPath == "" {
 		return nil
 	}
-	if _, err := git.PlainOpen(w.cfg.RepoPath); err == nil {
+	if _, err := git.PlainOpen(cfg.RepoPath); err == nil {
 		return nil // repo already exists
 	}
-	if w.cfg.RemoteURL == "" {
-		return fmt.Errorf("gitwriter: %q is not a git repo and GIT_REMOTE_URL is not set", w.cfg.RepoPath)
+	if cfg.RemoteURL == "" {
+		return fmt.Errorf("gitwriter: %q is not a git repo and GIT_REMOTE_URL is not set", cfg.RepoPath)
 	}
 	w.log.InfoContext(ctx, "gitwriter: cloning repo (empty PVC or first start)",
-		"remote", w.cfg.RemoteURL, "path", w.cfg.RepoPath)
+		"remote", cfg.RemoteURL, "path", cfg.RepoPath)
 
 	opts := &git.CloneOptions{
-		URL:           w.cfg.RemoteURL,
+		URL:           cfg.RemoteURL,
 		SingleBranch:  true,
-		ReferenceName: plumbing.NewBranchReferenceName(w.cfg.Branch),
+		ReferenceName: plumbing.NewBranchReferenceName(cfg.Branch),
 	}
 	switch {
-	case w.cfg.AuthToken != "":
-		opts.Auth = &gogithttp.BasicAuth{Username: "x-token", Password: w.cfg.AuthToken}
-	case w.cfg.SSHKeyPath != "":
-		auth, err := gogitssh.NewPublicKeysFromFile("git", w.cfg.SSHKeyPath, "")
+	case cfg.AuthToken != "":
+		opts.Auth = &gogithttp.BasicAuth{Username: "x-token", Password: cfg.AuthToken}
+	case cfg.SSHKeyPath != "":
+		auth, err := gogitssh.NewPublicKeysFromFile("git", cfg.SSHKeyPath, "")
 		if err != nil {
 			return fmt.Errorf("gitwriter: load SSH key: %w", err)
 		}
 		opts.Auth = auth
 	}
 
-	if _, err := git.PlainCloneContext(ctx, w.cfg.RepoPath, false, opts); err != nil {
-		return fmt.Errorf("gitwriter: clone %s to %s: %w", w.cfg.RemoteURL, w.cfg.RepoPath, err)
+	if _, err := git.PlainCloneContext(ctx, cfg.RepoPath, false, opts); err != nil {
+		return fmt.Errorf("gitwriter: clone %s to %s: %w", cfg.RemoteURL, cfg.RepoPath, err)
 	}
-	w.log.InfoContext(ctx, "gitwriter: clone complete", "path", w.cfg.RepoPath)
+	w.log.InfoContext(ctx, "gitwriter: clone complete", "path", cfg.RepoPath)
 	return nil
 }
 
 // GetCurrentValue returns the current value of fieldPath in the manifest for
 // (namespace, kind, name) without making any changes.
 func (w *Writer) GetCurrentValue(namespace, name, kind, fieldPath string) (string, error) {
-	absPath, err := FindManifest(w.cfg.RepoPath, namespace, kind, name)
+	absPath, err := FindManifest(w.snapshotCfg().RepoPath, namespace, kind, name)
 	if err != nil {
 		return "", err
 	}
@@ -113,17 +140,18 @@ func (w *Writer) GetCurrentValue(namespace, name, kind, fieldPath string) (strin
 // to discover the last-known-good image tag without requiring it to be supplied
 // by the caller.
 func (w *Writer) GetPreviousValue(namespace, name, kind, fieldPath string) (string, error) {
-	absPath, err := FindManifest(w.cfg.RepoPath, namespace, kind, name)
+	repoPath := w.snapshotCfg().RepoPath
+	absPath, err := FindManifest(repoPath, namespace, kind, name)
 	if err != nil {
 		return "", err
 	}
-	relPath, err := filepath.Rel(w.cfg.RepoPath, absPath)
+	relPath, err := filepath.Rel(repoPath, absPath)
 	if err != nil {
 		return "", fmt.Errorf("rel path: %w", err)
 	}
 	relPath = filepath.ToSlash(relPath)
 
-	repo, err := git.PlainOpen(w.cfg.RepoPath)
+	repo, err := git.PlainOpen(repoPath)
 	if err != nil {
 		return "", fmt.Errorf("open repo: %w", err)
 	}
@@ -176,11 +204,12 @@ func (w *Writer) EditField(
 	namespace, name, kind, fieldPath, newValue string,
 	dryRun bool,
 ) (Result, error) {
-	absPath, err := FindManifest(w.cfg.RepoPath, namespace, kind, name)
+	repoPath := w.snapshotCfg().RepoPath
+	absPath, err := FindManifest(repoPath, namespace, kind, name)
 	if err != nil {
 		return Result{}, err
 	}
-	relPath, err := filepath.Rel(w.cfg.RepoPath, absPath)
+	relPath, err := filepath.Rel(repoPath, absPath)
 	if err != nil {
 		return Result{}, fmt.Errorf("rel path: %w", err)
 	}
@@ -243,12 +272,14 @@ func (w *Writer) commit(
 		return "", fmt.Errorf("snapshot original: %w", err)
 	}
 
+	cfg := w.snapshotCfg()
+
 	// Write the edited content.
 	if err := os.WriteFile(absPath, newData, 0o644); err != nil {
 		return "", fmt.Errorf("write %s: %w", absPath, err)
 	}
 
-	repo, err := git.PlainOpen(w.cfg.RepoPath)
+	repo, err := git.PlainOpen(cfg.RepoPath)
 	if err != nil {
 		_ = os.WriteFile(absPath, original, 0o644)
 		return "", fmt.Errorf("open repo: %w", err)
@@ -268,8 +299,8 @@ func (w *Writer) commit(
 	msg := buildCommitMessage(relPath, field, oldValue, newValue)
 	hash, err := wt.Commit(msg, &git.CommitOptions{
 		Author: &object.Signature{
-			Name:  w.cfg.BotName,
-			Email: w.cfg.BotEmail,
+			Name:  cfg.BotName,
+			Email: cfg.BotEmail,
 			When:  time.Now(),
 		},
 	})
@@ -280,8 +311,8 @@ func (w *Writer) commit(
 
 	sha := hash.String()
 
-	if w.cfg.RemoteURL != "" {
-		if pushErr := w.push(ctx, repo); pushErr != nil {
+	if cfg.RemoteURL != "" {
+		if pushErr := w.push(ctx, repo, cfg); pushErr != nil {
 			_ = os.WriteFile(absPath, original, 0o644)
 			return "", fmt.Errorf("git push (commit %s): %w", sha, pushErr)
 		}
@@ -292,26 +323,26 @@ func (w *Writer) commit(
 
 // push pushes the configured branch to the remote. It selects auth based on
 // whether an AuthToken (HTTPS) or SSHKeyPath (SSH) is configured.
-func (w *Writer) push(ctx context.Context, repo *git.Repository) error {
+func (w *Writer) push(ctx context.Context, repo *git.Repository, cfg Config) error {
 	refSpec := gitconfig.RefSpec(fmt.Sprintf(
-		"refs/heads/%s:refs/heads/%s", w.cfg.Branch, w.cfg.Branch,
+		"refs/heads/%s:refs/heads/%s", cfg.Branch, cfg.Branch,
 	))
 	opts := &git.PushOptions{
 		RemoteName: "origin",
 		RefSpecs:   []gitconfig.RefSpec{refSpec},
-		RemoteURL:  w.cfg.RemoteURL,
+		RemoteURL:  cfg.RemoteURL,
 	}
 
 	switch {
-	case w.cfg.AuthToken != "":
+	case cfg.AuthToken != "":
 		opts.Auth = &gogithttp.BasicAuth{
 			Username: "x-token", // any non-empty string works for token auth
-			Password: w.cfg.AuthToken,
+			Password: cfg.AuthToken,
 		}
-	case w.cfg.SSHKeyPath != "":
-		auth, err := gogitssh.NewPublicKeysFromFile("git", w.cfg.SSHKeyPath, "")
+	case cfg.SSHKeyPath != "":
+		auth, err := gogitssh.NewPublicKeysFromFile("git", cfg.SSHKeyPath, "")
 		if err != nil {
-			return fmt.Errorf("load SSH key %s: %w", w.cfg.SSHKeyPath, err)
+			return fmt.Errorf("load SSH key %s: %w", cfg.SSHKeyPath, err)
 		}
 		opts.Auth = auth
 	}

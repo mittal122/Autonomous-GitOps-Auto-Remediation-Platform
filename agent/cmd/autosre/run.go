@@ -112,7 +112,7 @@ func runRun(args []string, cfg config.Config, log *slog.Logger) int {
 	// Components
 	// -----------------------------------------------------------------------
 
-	gw := gitwriter.New(gitwriter.Config{
+	gwCfg := gitwriter.Config{
 		RepoPath:   cfg.Remediator.RepoPath,
 		BotName:    cfg.Remediator.BotName,
 		BotEmail:   cfg.Remediator.BotEmail,
@@ -120,11 +120,24 @@ func runRun(args []string, cfg config.Config, log *slog.Logger) int {
 		RemoteURL:  cfg.Remediator.RemoteURL,
 		AuthToken:  cfg.Remediator.AuthToken,
 		SSHKeyPath: cfg.Remediator.SSHKeyPath,
-	}, log)
-	if cfg.Remediator.RemoteURL == "" {
+	}
+	if settingsStore != nil {
+		if saved, ok, loadErr := settingsStore.LoadGitOpsSettings(ctx); loadErr != nil {
+			log.Warn("settings: failed to load persisted gitops settings; using env/defaults", "error", loadErr)
+		} else if ok {
+			gwCfg = gitwriter.Config{
+				RepoPath: saved.RepoPath, BotName: saved.BotName, BotEmail: saved.BotEmail,
+				Branch: saved.Branch, RemoteURL: saved.RemoteURL, AuthToken: saved.AuthToken,
+				SSHKeyPath: saved.SSHKeyPath,
+			}
+			log.Info("settings: applied persisted gitops configuration", "repo_path", saved.RepoPath)
+		}
+	}
+	gw := gitwriter.New(gwCfg, log)
+	if gwCfg.RemoteURL == "" {
 		log.Warn("gitwriter: GIT_REMOTE_URL not set — commits are local only (ArgoCD will not sync)")
 	}
-	if cfg.Remediator.RepoPath != "" {
+	if gwCfg.RepoPath != "" {
 		if cloneErr := gw.EnsureRepo(ctx); cloneErr != nil {
 			log.Warn("gitwriter: repo not available; remediation will fail until repo is cloned",
 				"error", cloneErr)
@@ -284,7 +297,7 @@ func runRun(args []string, cfg config.Config, log *slog.Logger) int {
 	if ing != nil {
 		intCtl = ing
 	}
-	apiSrv := api.NewServer(ctx, cfg.API, cor, orch, auditSink, notif, pol, cfg.Learner.Addr, intCtl, k8sDetector, diagClient, settingsStore, log)
+	apiSrv := api.NewServer(ctx, cfg.API, cor, orch, auditSink, notif, pol, cfg.Learner.Addr, intCtl, k8sDetector, diagClient, gw, settingsStore, log)
 	mux.Handle("/", apiSrv.Handler(cfg.API.WebUIDir))
 
 	srv := &http.Server{
