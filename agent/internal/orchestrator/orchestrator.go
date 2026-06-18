@@ -56,6 +56,10 @@ type Orchestrator struct {
 	// kill is the global halt; set via SetKillSwitch. Checked before every Apply call.
 	kill atomic.Bool
 
+	// applyEnabled gates real GitOps commits; set via SetApplyEnabled.
+	// Initialized from cfg.ApplyEnabled but live-toggleable from the Settings page.
+	applyEnabled atomic.Bool
+
 	// sem bounds the number of concurrent pipeline goroutines.
 	sem chan struct{}
 
@@ -96,6 +100,7 @@ func New(
 		inFlight: inFlightRegistry{ids: make(map[string]struct{})},
 	}
 	o.kill.Store(cfg.KillSwitch)
+	o.applyEnabled.Store(cfg.ApplyEnabled)
 	return o
 }
 
@@ -134,7 +139,7 @@ func (o *Orchestrator) reportOutcome(ctx context.Context, rec outcome.Record) {
 // for each EventClosed incident. It returns when ctx is cancelled or events is closed.
 func (o *Orchestrator) Run(ctx context.Context, events <-chan correlator.IncidentEvent) {
 	o.log.InfoContext(ctx, "orchestrator: run loop started",
-		"apply_enabled", o.cfg.ApplyEnabled,
+		"apply_enabled", o.ApplyEnabled(),
 		"kill_switch", o.kill.Load(),
 		"max_workers", cap(o.sem),
 	)
@@ -185,7 +190,12 @@ func (o *Orchestrator) schedule(ctx context.Context, inc contracts.Incident) {
 func (o *Orchestrator) SetKillSwitch(engaged bool) { o.kill.Store(engaged) }
 
 // ApplyEnabled reports whether real GitOps commits are currently permitted.
-func (o *Orchestrator) ApplyEnabled() bool { return o.cfg.ApplyEnabled }
+func (o *Orchestrator) ApplyEnabled() bool { return o.applyEnabled.Load() }
+
+// SetApplyEnabled atomically toggles whether real GitOps commits are permitted.
+// Takes effect immediately for any pipeline currently at or approaching stage 6
+// (Apply) — no process restart required.
+func (o *Orchestrator) SetApplyEnabled(enabled bool) { o.applyEnabled.Store(enabled) }
 
 // KillSwitchEngaged reports whether the kill switch is currently on.
 func (o *Orchestrator) KillSwitchEngaged() bool { return o.kill.Load() }

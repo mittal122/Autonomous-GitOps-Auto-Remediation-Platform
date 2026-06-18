@@ -164,7 +164,7 @@ func (o *Orchestrator) runPipeline(ctx context.Context, inc contracts.Incident) 
 	// -----------------------------------------------------------------------
 	// Stage 5: Build action and DryRun
 	// -----------------------------------------------------------------------
-	dryRun := !o.cfg.ApplyEnabled // action is instantiated dry-run when Apply is disabled
+	dryRun := !o.ApplyEnabled() // action is instantiated dry-run when Apply is disabled
 	action, err := o.builder.Build(diag, proposal, dryRun)
 	if err != nil {
 		log.ErrorContext(ctx, "orchestrator: cannot build action", "error", err)
@@ -195,7 +195,7 @@ func (o *Orchestrator) runPipeline(ctx context.Context, inc contracts.Incident) 
 	// Stage 6: Apply (gated on ApplyEnabled + kill switch)
 	// -----------------------------------------------------------------------
 	remediationRef := "dry-run/" + inc.ID
-	if o.cfg.ApplyEnabled {
+	if o.ApplyEnabled() {
 		// Re-check kill switch immediately before the write.
 		if o.kill.Load() {
 			log.InfoContext(ctx, "orchestrator: kill switch engaged before apply; aborting")

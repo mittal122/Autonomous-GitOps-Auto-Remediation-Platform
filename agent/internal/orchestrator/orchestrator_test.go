@@ -253,6 +253,41 @@ func TestPipeline_ApplyEnabled(t *testing.T) {
 	}
 }
 
+// SetApplyEnabled toggles Apply behavior live, without rebuilding the Orchestrator.
+func TestSetApplyEnabled_TogglesLive(t *testing.T) {
+	action := &mockAction{}
+	orch, _ := newTestOrchestrator(orchestratorOpts{
+		polCfg:    autoPolicy(),
+		builder:   &mockActionBuilder{action: action},
+		verResult: contracts.VerificationResult{Outcome: contracts.VerificationRecovered},
+		applyCfg:  false, // starts disabled
+	})
+	orch.diag = &mockDiagnosisClient{diag: oomDiagnosis()}
+
+	if orch.ApplyEnabled() {
+		t.Fatal("expected ApplyEnabled()=false initially")
+	}
+	orch.runPipeline(context.Background(), testIncident("inc-toggle-1"))
+	if got := action.applyCount(); got != 0 {
+		t.Errorf("Apply calls before enabling = %d; want 0", got)
+	}
+
+	orch.SetApplyEnabled(true)
+	if !orch.ApplyEnabled() {
+		t.Fatal("expected ApplyEnabled()=true after SetApplyEnabled(true)")
+	}
+	orch.runPipeline(context.Background(), testIncident("inc-toggle-2"))
+	if got := action.applyCount(); got != 1 {
+		t.Errorf("Apply calls after enabling = %d; want 1", got)
+	}
+
+	orch.SetApplyEnabled(false)
+	orch.runPipeline(context.Background(), testIncident("inc-toggle-3"))
+	if got := action.applyCount(); got != 1 {
+		t.Errorf("Apply calls after disabling again = %d; want still 1 (no new Apply)", got)
+	}
+}
+
 // Kill switch in config prevents Apply even when ApplyEnabled=true.
 func TestPipeline_KillSwitchInConfig(t *testing.T) {
 	action := &mockAction{}

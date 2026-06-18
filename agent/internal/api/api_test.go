@@ -36,8 +36,9 @@ type fakeControlPlane struct {
 
 func (f *fakeControlPlane) KillSwitchEngaged() bool { return f.killSwitch }
 func (f *fakeControlPlane) SetKillSwitch(e bool)    { f.killSwitch = e }
-func (f *fakeControlPlane) ApplyEnabled() bool       { return f.applyEnabled }
-func (f *fakeControlPlane) InFlightCount() int       { return f.inflight }
+func (f *fakeControlPlane) ApplyEnabled() bool      { return f.applyEnabled }
+func (f *fakeControlPlane) SetApplyEnabled(e bool)  { f.applyEnabled = e }
+func (f *fakeControlPlane) InFlightCount() int      { return f.inflight }
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -247,6 +248,60 @@ func TestKillSwitch_BadJSON(t *testing.T) {
 	rr := doRequest(t, srv.Handler(""), http.MethodPost, "/api/v1/control/kill-switch", []byte("{bad json"), makeBearer([]string{"admin"}))
 	if rr.Code != http.StatusBadRequest {
 		t.Fatalf("want 400, got %d", rr.Code)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Safety controls — GET/POST /api/v1/integrations/safety
+// ---------------------------------------------------------------------------
+
+func TestGetSafety_DevMode(t *testing.T) {
+	orch := &fakeControlPlane{applyEnabled: false, killSwitch: true}
+	srv := newTestServer(t, &fakeIncidentLister{}, orch, &audit.MemorySink{}, false)
+	rr := doRequest(t, srv.Handler(""), http.MethodGet, "/api/v1/integrations/safety", nil, "")
+	if rr.Code != http.StatusOK {
+		t.Fatalf("want 200, got %d: %s", rr.Code, rr.Body)
+	}
+	var got safetyResponse
+	if err := json.Unmarshal(rr.Body.Bytes(), &got); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if got.ApplyEnabled || !got.KillSwitchEngaged {
+		t.Errorf("unexpected response: %+v", got)
+	}
+}
+
+func TestSetSafety_AsAdmin(t *testing.T) {
+	orch := &fakeControlPlane{applyEnabled: false}
+	sink := &audit.MemorySink{}
+	srv := newTestServer(t, &fakeIncidentLister{}, orch, sink, true)
+
+	body, _ := json.Marshal(map[string]any{"apply_enabled": true, "reason": "ready for production"})
+	rr := doRequest(t, srv.Handler(""), http.MethodPost, "/api/v1/integrations/safety", body, makeBearer([]string{"admin"}))
+	if rr.Code != http.StatusOK {
+		t.Fatalf("want 200, got %d: %s", rr.Code, rr.Body)
+	}
+	if !orch.applyEnabled {
+		t.Error("expected apply_enabled to be true after toggle")
+	}
+
+	found := false
+	for _, ev := range sink.All() {
+		if ev.Stage == "SafetyControlToggled" {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("expected SafetyControlToggled audit event")
+	}
+}
+
+func TestSetSafety_OperatorForbidden(t *testing.T) {
+	srv := newTestServer(t, &fakeIncidentLister{}, &fakeControlPlane{}, &audit.MemorySink{}, true)
+	body, _ := json.Marshal(map[string]any{"apply_enabled": true})
+	rr := doRequest(t, srv.Handler(""), http.MethodPost, "/api/v1/integrations/safety", body, makeBearer([]string{"operator"}))
+	if rr.Code != http.StatusForbidden {
+		t.Fatalf("want 403 (apply_enabled is admin-only, like the kill switch), got %d: %s", rr.Code, rr.Body)
 	}
 }
 

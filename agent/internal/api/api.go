@@ -46,6 +46,7 @@ type ControlPlane interface {
 	KillSwitchEngaged() bool
 	SetKillSwitch(engaged bool)
 	ApplyEnabled() bool
+	SetApplyEnabled(enabled bool)
 	InFlightCount() int
 }
 
@@ -187,6 +188,11 @@ func (s *Server) Handler(webUIDir string) http.Handler {
 	mux.Handle("GET /api/v1/integrations/notifications", s.auth.enforce(s.handle(s.handleGetNotificationsIntegration), RoleViewer))
 	mux.Handle("POST /api/v1/integrations/notifications", s.auth.enforce(s.handle(s.handleSaveNotificationsIntegration), RoleOperator))
 	mux.Handle("POST /api/v1/integrations/notifications/test", s.auth.enforce(s.handle(s.handleTestNotificationsIntegration), RoleViewer))
+
+	// Zero-config integrations: Safety Controls (viewer reads; admin toggles — same
+	// privilege level as the existing kill-switch endpoint).
+	mux.Handle("GET /api/v1/integrations/safety", s.auth.enforce(s.handle(s.handleGetSafety), RoleViewer))
+	mux.Handle("POST /api/v1/integrations/safety", s.auth.enforce(s.handle(s.handleSetSafety), RoleAdmin))
 
 	// Zero-config integrations: GitOps & Remediation (viewer reads/tests, operator writes).
 	mux.Handle("GET /api/v1/integrations/gitops", s.auth.enforce(s.handle(s.handleGetGitOpsIntegration), RoleViewer))
