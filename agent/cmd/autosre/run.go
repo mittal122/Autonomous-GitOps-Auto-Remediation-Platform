@@ -169,6 +169,19 @@ func runRun(args []string, cfg config.Config, log *slog.Logger) int {
 		notifOpts = append(notifOpts, notifier.WithStore(sqliteStore))
 	}
 	notif := notifier.New(cfg.Notifier, log, notifOpts...)
+	if settingsStore != nil {
+		if saved, ok, loadErr := settingsStore.LoadNotifierSettings(ctx); loadErr != nil {
+			log.Warn("settings: failed to load persisted notifier settings; using env/defaults", "error", loadErr)
+		} else if ok {
+			notif.Reload(config.NotifierConfig{
+				SlackBotToken:       saved.SlackBotToken,
+				SlackSigningSecret:  saved.SlackSigningSecret,
+				SlackChannelID:      saved.SlackChannelID,
+				PagerDutyRoutingKey: saved.PagerDutyRoutingKey,
+			})
+			log.Info("settings: applied persisted notifier configuration")
+		}
+	}
 
 	corOpts := []correlator.Option{}
 	if sqliteStore != nil {

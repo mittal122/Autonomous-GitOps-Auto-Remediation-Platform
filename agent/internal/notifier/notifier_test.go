@@ -175,6 +175,68 @@ func TestSlackNotifier_Notify_TransportError_DegradesToLogOnly(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
+// SlackNotifier / PagerDutyClient / CompositeNotifier — Reload
+// ---------------------------------------------------------------------------
+
+func TestSlackNotifier_ReloadCredentials_AppliesLive(t *testing.T) {
+	var captured *http.Request
+	transport := roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		captured = r
+		return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(`{"ok":true}`)), Header: make(http.Header)}, nil
+	})
+
+	cfg := testSlackCfg("", "", "")
+	n := notifier.NewSlackNotifier(cfg, &http.Client{Transport: transport}, testLog())
+
+	// No credentials yet — log-only.
+	if err := n.Notify(context.Background(), "subj", "body"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if captured != nil {
+		t.Fatal("expected no HTTP request before ReloadCredentials")
+	}
+
+	n.ReloadCredentials("xoxb-new-token", "new-secret", "C99999")
+
+	if err := n.Notify(context.Background(), "subj", "body"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if captured == nil {
+		t.Fatal("expected an HTTP request to be sent after ReloadCredentials")
+	}
+	if auth := captured.Header.Get("Authorization"); auth != "Bearer xoxb-new-token" {
+		t.Errorf("expected new bot token applied, got %q", auth)
+	}
+}
+
+func TestPagerDutyClient_ReloadRoutingKey_AppliesLive(t *testing.T) {
+	var captured *http.Request
+	transport := roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		captured = r
+		return &http.Response{StatusCode: 202, Body: io.NopCloser(strings.NewReader("")), Header: make(http.Header)}, nil
+	})
+
+	p := notifier.NewPagerDutyClient("", &http.Client{Transport: transport}, 0, testLog())
+	inc := contracts.Incident{ID: "inc-reload-test", Severity: "critical"}
+
+	if err := p.Trigger(context.Background(), inc, "test"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if captured != nil {
+		t.Fatal("expected no HTTP request before ReloadRoutingKey")
+	}
+
+	p.ReloadRoutingKey("new-routing-key")
+
+	if err := p.Trigger(context.Background(), inc, "test"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if captured == nil {
+		t.Fatal("expected an HTTP request to be sent after ReloadRoutingKey")
+	}
+}
+
+// ---------------------------------------------------------------------------
 // SlackNotifier — RequestApproval
 // ---------------------------------------------------------------------------
 

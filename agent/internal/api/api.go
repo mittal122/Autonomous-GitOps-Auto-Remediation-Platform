@@ -61,6 +61,7 @@ type Server struct {
 	ing         IntegrationsControl // nil when the Kubernetes/Loki ingestor isn't wired
 	k8s         KubernetesControl   // nil when Kubernetes API access isn't wired
 	llm         LLMConfigPusher     // nil when the diagnoser client isn't wired
+	notifReload NotifierReloader    // nil when the notifier isn't wired
 	settings    *settings.Store     // nil when persistence is unavailable
 	auth        *authMiddleware
 	rl          *ipRateLimiter
@@ -126,6 +127,7 @@ func NewServer(
 		ing:         ing,
 		k8s:         k8s,
 		llm:         llm,
+		notifReload: notif,
 		settings:    settingsStore,
 		auth:        newAuthMiddleware(ctx, cfg, log),
 		rl:          newIPRateLimiter(),
@@ -177,6 +179,11 @@ func (s *Server) Handler(webUIDir string) http.Handler {
 	mux.Handle("GET /api/v1/integrations/llm", s.auth.enforce(s.handle(s.handleGetLLMIntegration), RoleViewer))
 	mux.Handle("POST /api/v1/integrations/llm", s.auth.enforce(s.handle(s.handleSaveLLMIntegration), RoleOperator))
 	mux.Handle("POST /api/v1/integrations/llm/test", s.auth.enforce(s.handle(s.handleTestLLMIntegration), RoleViewer))
+
+	// Zero-config integrations: Notifications (viewer reads/tests, operator writes).
+	mux.Handle("GET /api/v1/integrations/notifications", s.auth.enforce(s.handle(s.handleGetNotificationsIntegration), RoleViewer))
+	mux.Handle("POST /api/v1/integrations/notifications", s.auth.enforce(s.handle(s.handleSaveNotificationsIntegration), RoleOperator))
+	mux.Handle("POST /api/v1/integrations/notifications/test", s.auth.enforce(s.handle(s.handleTestNotificationsIntegration), RoleViewer))
 
 	// Zero-config integrations: Loki (viewer reads, operator writes).
 	mux.Handle("GET /api/v1/integrations/loki", s.auth.enforce(s.handle(s.handleGetLokiIntegration), RoleViewer))

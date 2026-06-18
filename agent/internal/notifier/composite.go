@@ -54,6 +54,16 @@ func New(cfg config.NotifierConfig, log *slog.Logger, opts ...Option) *Composite
 	return c
 }
 
+// Reload updates Slack and PagerDuty credentials in place — no rebuild of the
+// underlying clients, so the Slack approval registry (and any in-flight
+// approvals) survives. Timeout/retry tuning knobs are unaffected; those remain
+// process-startup config.
+func (c *CompositeNotifier) Reload(cfg config.NotifierConfig) {
+	c.slack.ReloadCredentials(cfg.SlackBotToken, cfg.SlackSigningSecret, cfg.SlackChannelID)
+	c.pd.ReloadRoutingKey(cfg.PagerDutyRoutingKey)
+	c.log.Info("notifier: credentials reloaded")
+}
+
 func (c *CompositeNotifier) Notify(ctx context.Context, subject, body string) error {
 	return c.slack.Notify(ctx, subject, body)
 }

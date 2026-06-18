@@ -14,6 +14,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/autosre/agent/internal/contracts"
@@ -41,10 +42,29 @@ type SlackConfig struct {
 // If BotToken or ChannelID is empty, Notify/RequestApproval degrade to log-only.
 // If SigningSecret is empty, the interactions endpoint rejects all inbound requests.
 type SlackNotifier struct {
+	mu     sync.RWMutex // guards cfg; see snapshotCfg and ReloadCredentials
 	cfg    SlackConfig
 	client *http.Client
 	reg    *registry
 	log    *slog.Logger
+}
+
+// snapshotCfg returns a copy of the current config, safe to read without holding mu.
+func (s *SlackNotifier) snapshotCfg() SlackConfig {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.cfg
+}
+
+// ReloadCredentials updates the bot token, signing secret, and channel ID in place,
+// without rebuilding the registry — any in-flight pending approvals are preserved.
+// Timeout/retry tuning knobs are unaffected (those remain process-startup config).
+func (s *SlackNotifier) ReloadCredentials(botToken, signingSecret, channelID string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.cfg.BotToken = botToken
+	s.cfg.SigningSecret = signingSecret
+	s.cfg.ChannelID = channelID
 }
 
 // NewSlackNotifier returns a SlackNotifier. httpClient may be nil (uses a default
@@ -70,13 +90,14 @@ func NewSlackNotifier(cfg SlackConfig, httpClient *http.Client, log *slog.Logger
 // Notify posts a plain-text notification to the configured Slack channel.
 // Degrades to log-only if credentials are missing; never panics.
 func (s *SlackNotifier) Notify(ctx context.Context, subject, body string) error {
-	if s.cfg.BotToken == "" || s.cfg.ChannelID == "" {
+	cfg := s.snapshotCfg()
+	if cfg.BotToken == "" || cfg.ChannelID == "" {
 		s.log.Info("slack notify (log-only, no credentials)", "subject", subject, "body", body)
 		return nil
 	}
 	text := fmt.Sprintf("*%s*\n%s", subject, body)
 	payload := map[string]any{
-		"channel": s.cfg.ChannelID,
+		"channel": cfg.ChannelID,
 		"text":    text,
 	}
 	if err := s.postJSON(ctx, "/chat.postMessage", payload); err != nil {
@@ -90,14 +111,15 @@ func (s *SlackNotifier) Notify(ctx context.Context, subject, body string) error 
 // until the human responds, ctx is cancelled, or the approval timeout elapses.
 // Fails closed: any error or timeout → ApprovalDenied.
 func (s *SlackNotifier) RequestApproval(ctx context.Context, proposal contracts.RemediationProposal) (contracts.ApprovalResult, error) {
-	if s.cfg.BotToken == "" || s.cfg.ChannelID == "" {
+	cfg := s.snapshotCfg()
+	if cfg.BotToken == "" || cfg.ChannelID == "" {
 		s.log.Warn("slack RequestApproval: no credentials — fail-closed DENIED",
 			"incident_id", proposal.IncidentID)
 		return denied("", "no Slack credentials configured"), nil
 	}
 
 	reqID := uid.New()
-	ch := s.reg.register(proposal.IncidentID, reqID, proposal, s.cfg.ApprovalTimeout)
+	ch := s.reg.register(proposal.IncidentID, reqID, proposal, cfg.ApprovalTimeout)
 	defer s.reg.remove(reqID)
 
 	payload := s.buildApprovalMessage(reqID, proposal)
@@ -111,7 +133,7 @@ func (s *SlackNotifier) RequestApproval(ctx context.Context, proposal contracts.
 		"request_id", reqID,
 		"incident_id", proposal.IncidentID,
 		"action", proposal.Params.ActionType,
-		"timeout", s.cfg.ApprovalTimeout,
+		"timeout", cfg.ApprovalTimeout,
 	)
 
 	select {
@@ -119,14 +141,14 @@ func (s *SlackNotifier) RequestApproval(ctx context.Context, proposal contracts.
 		s.log.Info("slack approval received",
 			"request_id", reqID, "decision", result.Decision, "approver", result.Approver)
 		return result, nil
-	case <-time.After(s.cfg.ApprovalTimeout):
+	case <-time.After(cfg.ApprovalTimeout):
 		s.log.Warn("slack approval timeout — fail-closed DENIED", "request_id", reqID)
 		return contracts.ApprovalResult{
 			RequestID: reqID,
 			Decision:  contracts.ApprovalTimeout,
 			Approver:  "system",
 			DecidedAt: time.Now(),
-			Reason:    fmt.Sprintf("no response within %s", s.cfg.ApprovalTimeout),
+			Reason:    fmt.Sprintf("no response within %s", cfg.ApprovalTimeout),
 		}, nil
 	case <-ctx.Done():
 		s.log.Warn("slack approval cancelled — fail-closed DENIED", "request_id", reqID)
@@ -251,7 +273,7 @@ func (s *SlackNotifier) buildApprovalMessage(reqID string, p contracts.Remediati
 		p.FailureMode, p.Confidence*100, p.Params.ActionType,
 	)
 	return map[string]any{
-		"channel": s.cfg.ChannelID,
+		"channel": s.snapshotCfg().ChannelID,
 		"text":    text,
 		"blocks": []any{
 			map[string]any{
@@ -289,8 +311,9 @@ func (s *SlackNotifier) postJSON(ctx context.Context, path string, payload any) 
 		return fmt.Errorf("marshal: %w", err)
 	}
 
+	cfg := s.snapshotCfg()
 	var lastErr error
-	for attempt := 0; attempt <= s.cfg.MaxRetries; attempt++ {
+	for attempt := 0; attempt <= cfg.MaxRetries; attempt++ {
 		if attempt > 0 {
 			backoff := time.Duration(1<<uint(attempt-1)) * 500 * time.Millisecond
 			select {
@@ -306,7 +329,7 @@ func (s *SlackNotifier) postJSON(ctx context.Context, path string, payload any) 
 			return fmt.Errorf("build request: %w", err)
 		}
 		req.Header.Set("Content-Type", "application/json")
-		req.Header.Set("Authorization", "Bearer "+s.cfg.BotToken)
+		req.Header.Set("Authorization", "Bearer "+cfg.BotToken)
 
 		resp, err := s.client.Do(req)
 		if err != nil {
@@ -328,7 +351,8 @@ func (s *SlackNotifier) postJSON(ctx context.Context, path string, payload any) 
 // verifySignature validates the Slack request signature.
 // Returns false on any validation failure (missing fields, bad HMAC, replay).
 func (s *SlackNotifier) verifySignature(timestamp, body, signature string) bool {
-	if s.cfg.SigningSecret == "" {
+	cfg := s.snapshotCfg()
+	if cfg.SigningSecret == "" {
 		return false // no secret configured → reject all
 	}
 	if timestamp == "" || signature == "" {
@@ -346,7 +370,7 @@ func (s *SlackNotifier) verifySignature(timestamp, body, signature string) bool 
 	}
 
 	base := slackSignatureVersion + ":" + timestamp + ":" + body
-	mac := hmac.New(sha256.New, []byte(s.cfg.SigningSecret))
+	mac := hmac.New(sha256.New, []byte(cfg.SigningSecret))
 	mac.Write([]byte(base))
 	expected := slackSignatureVersion + "=" + hex.EncodeToString(mac.Sum(nil))
 

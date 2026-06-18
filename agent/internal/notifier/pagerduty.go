@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/autosre/agent/internal/contracts"
@@ -20,10 +21,25 @@ const pdEventsV2URL = "https://events.pagerduty.com/v2/enqueue"
 // It is not a full contracts.Notifier; it only handles Escalate.
 // The CompositeNotifier combines it with SlackNotifier for the full interface.
 type PagerDutyClient struct {
+	mu         sync.RWMutex // guards routingKey
 	routingKey string
 	client     *http.Client
 	maxRetries int
 	log        *slog.Logger
+}
+
+// getRoutingKey returns the current routing key, safe for concurrent reads.
+func (p *PagerDutyClient) getRoutingKey() string {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	return p.routingKey
+}
+
+// ReloadRoutingKey updates the routing key in place.
+func (p *PagerDutyClient) ReloadRoutingKey(routingKey string) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.routingKey = routingKey
 }
 
 // NewPagerDutyClient returns a PagerDutyClient. httpClient may be nil.
@@ -45,14 +61,15 @@ func NewPagerDutyClient(routingKey string, httpClient *http.Client, maxRetries i
 // Trigger sends a PagerDuty "trigger" event for the given incident.
 // Degrades to log-only if routingKey is empty; never panics.
 func (p *PagerDutyClient) Trigger(ctx context.Context, incident contracts.Incident, reason string) error {
-	if p.routingKey == "" {
+	routingKey := p.getRoutingKey()
+	if routingKey == "" {
 		p.log.Info("pagerduty trigger (log-only, no routing key)",
 			"incident_id", incident.ID, "reason", reason)
 		return nil
 	}
 
 	payload := pdEventPayload{
-		RoutingKey:  p.routingKey,
+		RoutingKey:  routingKey,
 		EventAction: "trigger",
 		DedupKey:    incident.ID,
 		Payload: pdPayload{
