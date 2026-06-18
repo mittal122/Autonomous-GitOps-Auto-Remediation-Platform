@@ -36,6 +36,17 @@ type KubernetesControl interface {
 }
 
 // ---------------------------------------------------------------------------
+// GET /api/v1/integrations/kubernetes
+// ---------------------------------------------------------------------------
+
+func (s *Server) handleGetKubernetesIntegration(w http.ResponseWriter, r *http.Request) error {
+	if s.k8s == nil {
+		return jsonOK(w, k8sdetect.Status{Connected: false, Error: "Kubernetes API access not configured"})
+	}
+	return jsonOK(w, s.k8s.Status(r.Context()))
+}
+
+// ---------------------------------------------------------------------------
 // GET /api/v1/integrations/loki
 // ---------------------------------------------------------------------------
 

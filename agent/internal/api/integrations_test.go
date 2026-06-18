@@ -71,6 +71,24 @@ func newTestServerWithIntegrations(t *testing.T, ing IntegrationsControl, oidcEn
 		&audit.MemorySink{}, notif, pol, "", ing, nil, settingsStore, log)
 }
 
+func TestGetKubernetesIntegration_NoControl(t *testing.T) {
+	srv := newTestServerWithIntegrations(t, nil, false)
+	rr := doRequest(t, srv.Handler(""), http.MethodGet, "/api/v1/integrations/kubernetes", nil, "")
+	if rr.Code != http.StatusOK {
+		t.Fatalf("want 200, got %d: %s", rr.Code, rr.Body)
+	}
+	var got struct {
+		Connected bool   `json:"connected"`
+		Error     string `json:"error"`
+	}
+	if err := json.Unmarshal(rr.Body.Bytes(), &got); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if got.Connected || got.Error == "" {
+		t.Errorf("expected disconnected with a reason, got %+v", got)
+	}
+}
+
 func TestGetLokiIntegration_NotConfigured(t *testing.T) {
 	srv := newTestServerWithIntegrations(t, nil, false)
 	rr := doRequest(t, srv.Handler(""), http.MethodGet, "/api/v1/integrations/loki", nil, "")
