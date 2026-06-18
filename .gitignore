@@ -70,6 +70,13 @@ yarn.lock
 
 # Binaries
 agent/autosre
+/kind
+
+# Build cache markers (start.sh)
+agent/.build_hash
+diagnoser/.venv/.deps_hash
+learner/.venv/.deps_hash
+web-ui/.build_hash
 
 # Runtime / generated
 .run/
