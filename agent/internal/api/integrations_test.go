@@ -34,6 +34,12 @@ func (f *fakeIntegrationsControl) ReloadLoki(cfg ingestor.LokiConfig) error {
 
 func (f *fakeIntegrationsControl) LokiStatus() ingestor.LokiStatus { return f.status }
 
+func (f *fakeIntegrationsControl) WebhookHandler() http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+}
+
 // newTestServerWithIntegrations is like newTestServer but also wires Loki integration
 // control + a real (temp-dir-backed) encrypted settings store.
 func newTestServerWithIntegrations(t *testing.T, ing IntegrationsControl, oidcEnabled bool) *Server {
@@ -62,7 +68,7 @@ func newTestServerWithIntegrations(t *testing.T, ing IntegrationsControl, oidcEn
 		OIDCEnabled:       oidcEnabled,
 		OIDCRolesClaimKey: "roles",
 	}, &fakeIncidentLister{}, &fakeControlPlane{},
-		&audit.MemorySink{}, notif, pol, "", ing, settingsStore, log)
+		&audit.MemorySink{}, notif, pol, "", ing, nil, settingsStore, log)
 }
 
 func TestGetLokiIntegration_NotConfigured(t *testing.T) {

@@ -13,15 +13,26 @@ import (
 
 	"github.com/autosre/agent/internal/audit"
 	"github.com/autosre/agent/internal/ingestor"
+	"github.com/autosre/agent/internal/k8sdetect"
 	"github.com/autosre/agent/internal/settings"
 	"github.com/autosre/agent/internal/uid"
 )
 
 // IntegrationsControl is the subset of *ingestor.Ingestor the API needs to manage
-// the Loki integration live, without a process restart.
+// the Loki integration live (without a process restart) and to exercise the
+// Alertmanager webhook handler for the "test connection" action.
 type IntegrationsControl interface {
 	ReloadLoki(cfg ingestor.LokiConfig) error
 	LokiStatus() ingestor.LokiStatus
+	WebhookHandler() http.Handler
+}
+
+// KubernetesControl is the subset of *k8sdetect.Detector the API needs for the
+// Kubernetes status card and the Alertmanager Operator-CRD auto-apply action.
+type KubernetesControl interface {
+	Status(ctx context.Context) k8sdetect.Status
+	OperatorDetected(ctx context.Context) bool
+	ApplyAlertmanagerWebhook(ctx context.Context, webhookURL string) (applied bool, reason string)
 }
 
 // ---------------------------------------------------------------------------

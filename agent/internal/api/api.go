@@ -59,6 +59,7 @@ type Server struct {
 	learner     *http.Client
 	learnerAddr string
 	ing         IntegrationsControl // nil when the Kubernetes/Loki ingestor isn't wired
+	k8s         KubernetesControl   // nil when Kubernetes API access isn't wired
 	settings    *settings.Store     // nil when persistence is unavailable
 	auth        *authMiddleware
 	rl          *ipRateLimiter
@@ -108,6 +109,7 @@ func NewServer(
 	pol *policy.Engine,
 	learnerAddr string,
 	ing IntegrationsControl,
+	k8s KubernetesControl,
 	settingsStore *settings.Store,
 	log *slog.Logger,
 ) *Server {
@@ -120,6 +122,7 @@ func NewServer(
 		learner:     &http.Client{Timeout: 5 * time.Second},
 		learnerAddr: learnerAddr,
 		ing:         ing,
+		k8s:         k8s,
 		settings:    settingsStore,
 		auth:        newAuthMiddleware(ctx, cfg, log),
 		rl:          newIPRateLimiter(),
@@ -165,6 +168,11 @@ func (s *Server) Handler(webUIDir string) http.Handler {
 	mux.Handle("GET /api/v1/integrations/loki", s.auth.enforce(s.handle(s.handleGetLokiIntegration), RoleViewer))
 	mux.Handle("POST /api/v1/integrations/loki", s.auth.enforce(s.handle(s.handleSaveLokiIntegration), RoleOperator))
 	mux.Handle("POST /api/v1/integrations/loki/test", s.auth.enforce(s.handle(s.handleTestLokiIntegration), RoleViewer))
+
+	// Zero-config integrations: Alertmanager (viewer reads/tests, operator applies).
+	mux.Handle("GET /api/v1/integrations/alertmanager", s.auth.enforce(s.handle(s.handleGetAlertmanagerIntegration), RoleViewer))
+	mux.Handle("POST /api/v1/integrations/alertmanager/apply", s.auth.enforce(s.handle(s.handleApplyAlertmanagerIntegration), RoleOperator))
+	mux.Handle("POST /api/v1/integrations/alertmanager/test", s.auth.enforce(s.handle(s.handleTestAlertmanagerIntegration), RoleViewer))
 
 	// CORS pre-flight for cross-origin calls from the Vite dev server.
 	mux.HandleFunc("/api/", corsHeaders)

@@ -8,9 +8,12 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
+
+	"k8s.io/client-go/dynamic"
 
 	"github.com/autosre/agent/internal/api"
 	"github.com/autosre/agent/internal/audit"
@@ -20,6 +23,7 @@ import (
 	"github.com/autosre/agent/internal/diagnosis"
 	"github.com/autosre/agent/internal/gitwriter"
 	"github.com/autosre/agent/internal/ingestor"
+	"github.com/autosre/agent/internal/k8sdetect"
 	"github.com/autosre/agent/internal/notifier"
 	"github.com/autosre/agent/internal/orchestrator"
 	"github.com/autosre/agent/internal/outcome"
@@ -212,6 +216,19 @@ func runRun(args []string, cfg config.Config, log *slog.Logger) int {
 		ing.Start(ctx)
 	}
 
+	// Best-effort dynamic client for the Alertmanager Operator-CRD auto-apply action.
+	// Independent of k8sClient/ing — a failure here only disables the "Apply
+	// automatically" button, never the core detection/remediation path.
+	var dynClient dynamic.Interface
+	if restCfg, restErr := buildRestConfig(cfg); restErr != nil {
+		log.Warn("k8s rest config unavailable; Alertmanager auto-apply disabled", "error", restErr)
+	} else if dc, dcErr := dynamic.NewForConfig(restCfg); dcErr != nil {
+		log.Warn("k8s dynamic client unavailable; Alertmanager auto-apply disabled", "error", dcErr)
+	} else {
+		dynClient = dc
+	}
+	k8sDetector := k8sdetect.New(k8sClient, dynClient, cfg.InCluster, detectNamespace(cfg.InCluster))
+
 	// -----------------------------------------------------------------------
 	// HTTP server
 	// -----------------------------------------------------------------------
@@ -236,7 +253,7 @@ func runRun(args []string, cfg config.Config, log *slog.Logger) int {
 	if ing != nil {
 		intCtl = ing
 	}
-	apiSrv := api.NewServer(ctx, cfg.API, cor, orch, auditSink, notif, pol, cfg.Learner.Addr, intCtl, settingsStore, log)
+	apiSrv := api.NewServer(ctx, cfg.API, cor, orch, auditSink, notif, pol, cfg.Learner.Addr, intCtl, k8sDetector, settingsStore, log)
 	mux.Handle("/", apiSrv.Handler(cfg.API.WebUIDir))
 
 	srv := &http.Server{
@@ -313,4 +330,19 @@ func runRun(args []string, cfg config.Config, log *slog.Logger) int {
 			"timeout", cfg.ShutdownTimeout)
 	}
 	return 0
+}
+
+// detectNamespace returns the namespace the Alertmanager auto-apply action should
+// create its AlertmanagerConfig object in. When running in-cluster, it reads the
+// pod's own namespace from the standard service-account projection — no extra
+// configuration required. Outside the cluster, it defaults to "default".
+func detectNamespace(inCluster bool) string {
+	if inCluster {
+		if data, err := os.ReadFile("/var/run/secrets/kubernetes.io/serviceaccount/namespace"); err == nil {
+			if ns := strings.TrimSpace(string(data)); ns != "" {
+				return ns
+			}
+		}
+	}
+	return "default"
 }

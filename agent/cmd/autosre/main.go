@@ -183,30 +183,38 @@ func healthHandler(w http.ResponseWriter, _ *http.Request) {
 	fmt.Fprintln(w, `{"status":"ok"}`)
 }
 
-// buildK8sClient builds a Kubernetes clientset from in-cluster config or kubeconfig.
-func buildK8sClient(cfg config.Config) (kubernetes.Interface, error) {
-	var restCfg *rest.Config
-	var err error
-
+// buildRestConfig resolves the Kubernetes REST config from in-cluster config or kubeconfig.
+// Shared by buildK8sClient and any other client (e.g. a dynamic client) that needs the
+// same connection details.
+func buildRestConfig(cfg config.Config) (*rest.Config, error) {
 	if cfg.InCluster {
-		restCfg, err = rest.InClusterConfig()
+		restCfg, err := rest.InClusterConfig()
 		if err != nil {
 			return nil, fmt.Errorf("in-cluster config: %w", err)
 		}
-	} else {
-		kubeconfig := cfg.Kubeconfig
-		if kubeconfig == "" {
-			// Fall back to the default kubeconfig location.
-			if home := os.Getenv("HOME"); home != "" {
-				kubeconfig = home + "/.kube/config"
-			}
-		}
-		restCfg, err = clientcmd.BuildConfigFromFlags("", kubeconfig)
-		if err != nil {
-			return nil, fmt.Errorf("kubeconfig %q: %w", kubeconfig, err)
-		}
+		return restCfg, nil
 	}
 
+	kubeconfig := cfg.Kubeconfig
+	if kubeconfig == "" {
+		// Fall back to the default kubeconfig location.
+		if home := os.Getenv("HOME"); home != "" {
+			kubeconfig = home + "/.kube/config"
+		}
+	}
+	restCfg, err := clientcmd.BuildConfigFromFlags("", kubeconfig)
+	if err != nil {
+		return nil, fmt.Errorf("kubeconfig %q: %w", kubeconfig, err)
+	}
+	return restCfg, nil
+}
+
+// buildK8sClient builds a Kubernetes clientset from in-cluster config or kubeconfig.
+func buildK8sClient(cfg config.Config) (kubernetes.Interface, error) {
+	restCfg, err := buildRestConfig(cfg)
+	if err != nil {
+		return nil, err
+	}
 	client, err := kubernetes.NewForConfig(restCfg)
 	if err != nil {
 		return nil, fmt.Errorf("kubernetes client: %w", err)

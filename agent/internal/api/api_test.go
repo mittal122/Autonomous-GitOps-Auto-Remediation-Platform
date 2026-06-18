@@ -53,7 +53,7 @@ func newTestServer(t *testing.T, cor IncidentLister, orch ControlPlane, sink aud
 	return NewServer(context.Background(), config.APIConfig{
 		OIDCEnabled:       oidcEnabled,
 		OIDCRolesClaimKey: "roles",
-	}, cor, orch, sink, notif, pol, "", nil, nil, log)
+	}, cor, orch, sink, notif, pol, "", nil, nil, nil, log)
 }
 
 // makeBearer returns a synthetic Bearer token with the given roles in the payload.
