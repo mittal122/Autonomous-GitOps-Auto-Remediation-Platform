@@ -41,10 +41,14 @@ type KubernetesControl interface {
 // ---------------------------------------------------------------------------
 
 type integrationsSummaryResponse struct {
-	Loki          lokiSummary         `json:"loki"`
-	Alertmanager  alertmanagerSummary `json:"alertmanager"`
-	Kubernetes    k8sdetect.Status    `json:"kubernetes"`
-	AnyConfigured bool                `json:"any_configured"`
+	Loki          lokiSummary          `json:"loki"`
+	Alertmanager  alertmanagerSummary  `json:"alertmanager"`
+	Kubernetes    k8sdetect.Status     `json:"kubernetes"`
+	LLM           llmSummary           `json:"llm"`
+	Notifications notificationsSummary `json:"notifications"`
+	GitOps        gitOpsSummary        `json:"gitops"`
+	Safety        safetyResponse       `json:"safety"`
+	AnyConfigured bool                 `json:"any_configured"`
 }
 
 type lokiSummary struct {
@@ -57,11 +61,41 @@ type alertmanagerSummary struct {
 	OperatorDetected bool   `json:"operator_detected"`
 }
 
+type llmSummary struct {
+	Configured bool   `json:"configured"`
+	Provider   string `json:"provider,omitempty"`
+}
+
+type notificationsSummary struct {
+	SlackConfigured     bool `json:"slack_configured"`
+	PagerDutyConfigured bool `json:"pagerduty_configured"`
+}
+
+type gitOpsSummary struct {
+	Configured bool `json:"configured"`
+}
+
 func (s *Server) handleGetIntegrationsSummary(w http.ResponseWriter, r *http.Request) error {
 	var loki lokiSummary
+	var llm llmSummary
+	var notif notificationsSummary
+	var gitops gitOpsSummary
+
 	if s.settings != nil {
-		if _, ok, err := s.settings.LoadLokiSettings(r.Context()); err == nil && ok {
+		ctx := r.Context()
+		if _, ok, err := s.settings.LoadLokiSettings(ctx); err == nil && ok {
 			loki.Configured = true
+		}
+		if saved, ok, err := s.settings.LoadLLMSettings(ctx); err == nil && ok {
+			llm.Configured = saved.Provider != ""
+			llm.Provider = saved.Provider
+		}
+		if saved, ok, err := s.settings.LoadNotifierSettings(ctx); err == nil && ok {
+			notif.SlackConfigured = saved.SlackBotToken != ""
+			notif.PagerDutyConfigured = saved.PagerDutyRoutingKey != ""
+		}
+		if saved, ok, err := s.settings.LoadGitOpsSettings(ctx); err == nil && ok {
+			gitops.Configured = saved.RepoPath != ""
 		}
 	}
 	if s.ing != nil {
@@ -78,11 +112,21 @@ func (s *Server) handleGetIntegrationsSummary(w http.ResponseWriter, r *http.Req
 		k8sStatus = s.k8s.Status(r.Context())
 	}
 
+	safety := safetyResponse{}
+	if s.orch != nil {
+		safety.ApplyEnabled = s.orch.ApplyEnabled()
+		safety.KillSwitchEngaged = s.orch.KillSwitchEngaged()
+	}
+
 	return jsonOK(w, integrationsSummaryResponse{
 		Loki:          loki,
 		Alertmanager:  am,
 		Kubernetes:    k8sStatus,
-		AnyConfigured: loki.Configured,
+		LLM:           llm,
+		Notifications: notif,
+		GitOps:        gitops,
+		Safety:        safety,
+		AnyConfigured: loki.Configured || llm.Configured || notif.SlackConfigured || notif.PagerDutyConfigured || gitops.Configured,
 	})
 }
 

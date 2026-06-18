@@ -179,6 +179,9 @@ func (s *Server) Handler(webUIDir string) http.Handler {
 	// Zero-config integrations: Kubernetes (read-only — surfaces existing detection).
 	mux.Handle("GET /api/v1/integrations/kubernetes", s.auth.enforce(s.handle(s.handleGetKubernetesIntegration), RoleViewer))
 
+	// Zero-config integrations: secret reveal (Show/Hide) — admin-only, audited.
+	mux.Handle("POST /api/v1/integrations/reveal", s.auth.enforce(s.handle(s.handleReveal), RoleAdmin))
+
 	// Zero-config integrations: AI Provider / LLM (viewer reads/tests, operator writes).
 	mux.Handle("GET /api/v1/integrations/llm", s.auth.enforce(s.handle(s.handleGetLLMIntegration), RoleViewer))
 	mux.Handle("POST /api/v1/integrations/llm", s.auth.enforce(s.handle(s.handleSaveLLMIntegration), RoleOperator))
