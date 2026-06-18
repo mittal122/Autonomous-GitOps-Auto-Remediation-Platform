@@ -118,6 +118,65 @@ class TestDiagnosisService:
             d = svc.diagnose(make_incident(reason))
             assert 0.0 <= d.confidence <= 1.0, f"confidence out of bounds for {reason}"
 
+    def test_reconfigure_to_nim_builds_nim_provider(self) -> None:
+        from diagnoser.providers.nim import NimProvider
+
+        svc = DiagnosisService(primary=None, fallback=RuleBasedProvider())
+        svc.reconfigure(provider="nim", api_key="nvapi-fake-test-key", model="meta/llama-3.3-70b-instruct")
+        assert isinstance(svc._primary, NimProvider)
+
+    def test_reconfigure_to_gemini_builds_gemini_provider(self) -> None:
+        from diagnoser.providers.gemini import GeminiProvider
+
+        svc = DiagnosisService(primary=None, fallback=RuleBasedProvider())
+        svc.reconfigure(provider="gemini", api_key="fake-gemini-key", model="gemini-1.5-flash")
+        assert isinstance(svc._primary, GeminiProvider)
+
+    def test_reconfigure_to_empty_disables_primary(self) -> None:
+        svc = DiagnosisService(
+            primary=MockProvider(result=make_fixed_diagnosis()),
+            fallback=RuleBasedProvider(),
+        )
+        svc.reconfigure(provider="")
+        assert svc._primary is None
+        d = svc.diagnose(make_incident())
+        assert d.source == "fallback"
+
+    def test_reconfigure_nim_without_key_raises(self) -> None:
+        svc = DiagnosisService(primary=None, fallback=RuleBasedProvider())
+        with pytest.raises(ValueError):
+            svc.reconfigure(provider="nim", api_key="")
+
+    def test_reconfigure_unknown_provider_raises(self) -> None:
+        svc = DiagnosisService(primary=None, fallback=RuleBasedProvider())
+        with pytest.raises(ValueError):
+            svc.reconfigure(provider="not-a-real-provider", api_key="x")
+
+    def test_reconfigure_is_thread_safe_during_diagnose(self) -> None:
+        """diagnose() must not crash if reconfigure() runs concurrently."""
+        import threading
+
+        svc = DiagnosisService(primary=None, fallback=RuleBasedProvider())
+        errors: list[Exception] = []
+
+        def hammer_diagnose() -> None:
+            for _ in range(20):
+                try:
+                    svc.diagnose(make_incident())
+                except Exception as exc:  # pragma: no cover - failure path
+                    errors.append(exc)
+
+        def hammer_reconfigure() -> None:
+            for _ in range(20):
+                svc.reconfigure(provider="")
+
+        threads = [threading.Thread(target=hammer_diagnose), threading.Thread(target=hammer_reconfigure)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+        assert not errors
+
     def test_injection_telemetry_is_safe(self) -> None:
         """Signal messages containing injection-like text must not crash or misbehave."""
         inc = Incident(

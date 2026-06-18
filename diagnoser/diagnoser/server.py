@@ -25,6 +25,24 @@ from diagnoser.contracts import (
 )
 from diagnoser.core import DiagnosisService
 
+_TEST_INCIDENT = IncidentContract(
+    id="settings-test",
+    signals=[
+        SignalContract(
+            id="settings-test-signal",
+            source="k8s-event",
+            namespace="default",
+            resource="settings-test-deployment",
+            severity="warning",
+            kind="Pod",
+            reason="OOMKilled",
+            message="Connectivity test triggered from the Settings page — not a real incident.",
+        )
+    ],
+    affected_resources=["settings-test-deployment"],
+    severity="warning",
+)
+
 logger = logging.getLogger(__name__)
 
 app = FastAPI(
@@ -141,6 +159,72 @@ def diagnose(body: IncidentIn, request: Request) -> DiagnosisOut:
         blast_radius=d.blast_radius,
         source=d.source,
         diagnosed_at=d.diagnosed_at,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Runtime LLM provider configuration — set by the Go agent's Settings page so
+# the API key never needs to be set via NIM_API_KEY/GEMINI_API_KEY env vars or
+# a process restart. The Go agent's encrypted settings store is the source of
+# truth; this process holds only an in-memory copy of the active provider.
+# ---------------------------------------------------------------------------
+
+
+class LLMConfigIn(BaseModel):
+    provider: str = ""  # "nim" | "gemini" | "" (disable — fallback-only mode)
+    api_key: str = ""
+    model: str = ""
+    timeout_seconds: int = 30
+
+
+class LLMConfigTestOut(BaseModel):
+    ok: bool
+    message: str
+
+
+@app.post("/config/llm")
+def set_llm_config(body: LLMConfigIn) -> dict[str, bool]:
+    """Rebuild the active LLM provider in place. Never logs body.api_key."""
+    try:
+        get_service().reconfigure(
+            provider=body.provider,
+            api_key=body.api_key,
+            model=body.model,
+            timeout_seconds=body.timeout_seconds,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        logger.error("set_llm_config: failed to configure provider %r: %s", body.provider, type(exc).__name__)
+        raise HTTPException(status_code=400, detail=f"failed to configure provider: {exc}") from exc
+    return {"ok": True}
+
+
+@app.post("/config/llm/test", response_model=LLMConfigTestOut)
+def test_llm_config(body: LLMConfigIn) -> LLMConfigTestOut:
+    """One-shot connectivity test against the submitted (not-yet-saved) credentials."""
+    if body.provider not in ("nim", "gemini"):
+        return LLMConfigTestOut(ok=False, message="provider must be 'nim' or 'gemini'")
+    if not body.api_key:
+        return LLMConfigTestOut(ok=False, message="api_key is required")
+
+    try:
+        if body.provider == "nim":
+            from diagnoser.providers.nim import NimProvider  # noqa: PLC0415
+
+            provider = NimProvider(api_key=body.api_key, model=body.model, timeout_seconds=body.timeout_seconds or 30)
+        else:
+            from diagnoser.providers.gemini import GeminiProvider  # noqa: PLC0415
+
+            provider = GeminiProvider(api_key=body.api_key, model=body.model, timeout_seconds=body.timeout_seconds or 30)
+
+        diagnosis = provider.diagnose(_TEST_INCIDENT)
+    except Exception as exc:
+        return LLMConfigTestOut(ok=False, message=f"Test call failed: {exc}")
+
+    return LLMConfigTestOut(
+        ok=True,
+        message=f"Connected — model responded (action={diagnosis.proposed_action}, confidence={diagnosis.confidence:.2f})",
     )
 
 

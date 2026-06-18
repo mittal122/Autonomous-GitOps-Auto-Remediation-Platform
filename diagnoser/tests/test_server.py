@@ -161,3 +161,70 @@ class TestDiagnose:
         assert data["proposed_action"] in {
             "rollback-deployment", "scale-deployment", "bump-memory-limit"
         }
+
+
+class TestConfigLLM:
+    def test_set_config_disables_provider(self, client: TestClient) -> None:
+        import diagnoser.server as srv  # noqa: PLC0415
+        from diagnoser.core import DiagnosisService
+        from diagnoser.providers.rule_based import RuleBasedProvider
+
+        # The shared `client` fixture installs a _MockService that overrides
+        # diagnose() without calling super().__init__(), so it has no _lock —
+        # reconfigure() needs a real DiagnosisService.
+        srv._service = DiagnosisService(primary=None, fallback=RuleBasedProvider())
+        r = client.post("/config/llm", json={"provider": ""})
+        assert r.status_code == 200
+        assert r.json() == {"ok": True}
+
+    def test_set_config_missing_key_returns_400(self, client: TestClient) -> None:
+        r = client.post("/config/llm", json={"provider": "nim", "api_key": ""})
+        assert r.status_code == 400
+
+    def test_set_config_unknown_provider_returns_400(self, client: TestClient) -> None:
+        r = client.post("/config/llm", json={"provider": "not-real", "api_key": "x"})
+        assert r.status_code == 400
+
+    def test_set_config_nim_succeeds_and_applies_live(self, client: TestClient) -> None:
+        import diagnoser.server as srv  # noqa: PLC0415
+        from diagnoser.core import DiagnosisService
+        from diagnoser.providers.rule_based import RuleBasedProvider
+
+        srv._service = DiagnosisService(primary=None, fallback=RuleBasedProvider())
+        r = client.post("/config/llm", json={"provider": "nim", "api_key": "nvapi-fake-key", "model": "meta/llama-3.3-70b-instruct"})
+        assert r.status_code == 200
+
+        from diagnoser.providers.nim import NimProvider
+        assert isinstance(srv._service._primary, NimProvider)
+
+    def test_test_config_missing_key_returns_ok_false(self, client: TestClient) -> None:
+        r = client.post("/config/llm/test", json={"provider": "nim", "api_key": ""})
+        assert r.status_code == 200
+        assert r.json()["ok"] is False
+
+    def test_test_config_unknown_provider_returns_ok_false(self, client: TestClient) -> None:
+        r = client.post("/config/llm/test", json={"provider": "bogus", "api_key": "x"})
+        assert r.status_code == 200
+        assert r.json()["ok"] is False
+
+    def test_test_config_nim_success(self, client: TestClient) -> None:
+        with patch("diagnoser.providers.nim.NimProvider.diagnose", return_value=_FIXED_DIAGNOSIS):
+            r = client.post("/config/llm/test", json={"provider": "nim", "api_key": "nvapi-fake-key"})
+        assert r.status_code == 200
+        data = r.json()
+        assert data["ok"] is True
+        assert "bump-memory-limit" in data["message"]
+
+    def test_test_config_nim_failure_surfaces_message(self, client: TestClient) -> None:
+        with patch("diagnoser.providers.nim.NimProvider.diagnose", side_effect=RuntimeError("NIM API call failed: 401 Unauthorized")):
+            r = client.post("/config/llm/test", json={"provider": "nim", "api_key": "nvapi-bad-key"})
+        assert r.status_code == 200
+        data = r.json()
+        assert data["ok"] is False
+        assert "401" in data["message"]
+
+    def test_set_config_does_not_log_api_key(self, client: TestClient, caplog: pytest.LogCaptureFixture) -> None:
+        secret = "nvapi-super-secret-value-should-not-appear-in-logs"
+        with patch("diagnoser.providers.nim.NimProvider.diagnose", return_value=_FIXED_DIAGNOSIS):
+            client.post("/config/llm", json={"provider": "nim", "api_key": secret})
+        assert secret not in caplog.text
