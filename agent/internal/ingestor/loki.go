@@ -276,6 +276,94 @@ func (l *lokiSource) extractSignals(result lokiQueryRangeResp) []contracts.Signa
 	return signals
 }
 
+// LokiTestResult is the outcome of a one-shot Loki connectivity check, used by the
+// web API's "Test connection" action before a config is saved.
+type LokiTestResult struct {
+	OK          bool     `json:"ok"`
+	Message     string   `json:"message"`
+	SampleLines []string `json:"sample_lines,omitempty"`
+}
+
+// TestLokiConnection checks readiness and runs a small sample query against cfg.Addr.
+// It does not affect any running poller and is safe to call with an unsaved config.
+func TestLokiConnection(ctx context.Context, cfg LokiConfig) LokiTestResult {
+	if cfg.Addr == "" {
+		return LokiTestResult{Message: "addr is required"}
+	}
+	timeout := cfg.Timeout
+	if timeout <= 0 {
+		timeout = 10 * time.Second
+	}
+	client := &http.Client{Timeout: timeout}
+	addr := strings.TrimRight(cfg.Addr, "/")
+
+	readyReq, err := http.NewRequestWithContext(ctx, http.MethodGet, addr+"/ready", nil)
+	if err != nil {
+		return LokiTestResult{Message: fmt.Sprintf("build request: %v", err)}
+	}
+	readyResp, err := client.Do(readyReq)
+	if err != nil {
+		return LokiTestResult{Message: fmt.Sprintf("cannot reach %s: %v", cfg.Addr, err)}
+	}
+	defer readyResp.Body.Close()
+	if readyResp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(io.LimitReader(readyResp.Body, 256))
+		return LokiTestResult{Message: fmt.Sprintf("loki not ready (HTTP %d): %s", readyResp.StatusCode, body)}
+	}
+
+	query := cfg.Query
+	if query == "" {
+		query = `{namespace=~".+"}`
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, addr+"/loki/api/v1/query_range", nil)
+	if err != nil {
+		return LokiTestResult{OK: true, Message: "connected, but could not build sample query"}
+	}
+	q := url.Values{}
+	q.Set("query", query)
+	q.Set("start", fmt.Sprintf("%d", time.Now().Add(-5*time.Minute).UnixNano()))
+	q.Set("end", fmt.Sprintf("%d", time.Now().UnixNano()))
+	q.Set("limit", "5")
+	req.URL.RawQuery = q.Encode()
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return LokiTestResult{OK: true, Message: "connected, but sample query failed: " + err.Error()}
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 256))
+		return LokiTestResult{OK: true, Message: fmt.Sprintf("connected, but query returned HTTP %d: %s", resp.StatusCode, body)}
+	}
+
+	var result lokiQueryRangeResp
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return LokiTestResult{OK: true, Message: "connected, but could not parse sample response"}
+	}
+
+	var samples []string
+	for _, stream := range result.Data.Result {
+		for _, entry := range stream.Values {
+			if len(entry) < 2 {
+				continue
+			}
+			samples = append(samples, truncate(entry[1], 256))
+			if len(samples) >= 5 {
+				break
+			}
+		}
+		if len(samples) >= 5 {
+			break
+		}
+	}
+
+	msg := "Connected"
+	if len(samples) == 0 {
+		msg = "Connected — no matching log lines in the last 5 minutes (this is normal if the query/namespace has no recent activity)"
+	}
+	return LokiTestResult{OK: true, Message: msg, SampleLines: samples}
+}
+
 func inferKindFromStream(stream map[string]string) string {
 	if stream["pod"] != "" {
 		return "Pod"

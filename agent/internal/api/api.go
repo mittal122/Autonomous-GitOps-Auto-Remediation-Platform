@@ -29,6 +29,7 @@ import (
 	"github.com/autosre/agent/internal/contracts"
 	"github.com/autosre/agent/internal/notifier"
 	"github.com/autosre/agent/internal/policy"
+	"github.com/autosre/agent/internal/settings"
 	"github.com/autosre/agent/internal/uid"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"golang.org/x/time/rate"
@@ -57,6 +58,8 @@ type Server struct {
 	pol         *policy.Engine
 	learner     *http.Client
 	learnerAddr string
+	ing         IntegrationsControl // nil when the Kubernetes/Loki ingestor isn't wired
+	settings    *settings.Store     // nil when persistence is unavailable
 	auth        *authMiddleware
 	rl          *ipRateLimiter
 	log         *slog.Logger
@@ -104,6 +107,8 @@ func NewServer(
 	notif *notifier.CompositeNotifier,
 	pol *policy.Engine,
 	learnerAddr string,
+	ing IntegrationsControl,
+	settingsStore *settings.Store,
 	log *slog.Logger,
 ) *Server {
 	return &Server{
@@ -114,6 +119,8 @@ func NewServer(
 		pol:         pol,
 		learner:     &http.Client{Timeout: 5 * time.Second},
 		learnerAddr: learnerAddr,
+		ing:         ing,
+		settings:    settingsStore,
 		auth:        newAuthMiddleware(ctx, cfg, log),
 		rl:          newIPRateLimiter(),
 		log:         log,
@@ -153,6 +160,11 @@ func (s *Server) Handler(webUIDir string) http.Handler {
 
 	// Paginated audit log (viewer+).
 	mux.Handle("GET /api/v1/audit", s.auth.enforce(s.handle(s.handleListAudit), RoleViewer))
+
+	// Zero-config integrations: Loki (viewer reads, operator writes).
+	mux.Handle("GET /api/v1/integrations/loki", s.auth.enforce(s.handle(s.handleGetLokiIntegration), RoleViewer))
+	mux.Handle("POST /api/v1/integrations/loki", s.auth.enforce(s.handle(s.handleSaveLokiIntegration), RoleOperator))
+	mux.Handle("POST /api/v1/integrations/loki/test", s.auth.enforce(s.handle(s.handleTestLokiIntegration), RoleViewer))
 
 	// CORS pre-flight for cross-origin calls from the Vite dev server.
 	mux.HandleFunc("/api/", corsHeaders)

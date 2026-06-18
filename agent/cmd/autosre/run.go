@@ -24,6 +24,7 @@ import (
 	"github.com/autosre/agent/internal/orchestrator"
 	"github.com/autosre/agent/internal/outcome"
 	"github.com/autosre/agent/internal/policy"
+	"github.com/autosre/agent/internal/settings"
 	"github.com/autosre/agent/internal/store"
 	"github.com/autosre/agent/internal/verifier"
 )
@@ -68,6 +69,39 @@ func runRun(args []string, cfg config.Config, log *slog.Logger) int {
 		sqliteStore = s
 		log.Info("store: SQLite opened", "dsn", cfg.Store.DSN)
 		defer s.Close()
+	}
+
+	// -----------------------------------------------------------------------
+	// Integration settings (Loki, Alertmanager, …) — encrypted, web-UI-managed.
+	// Loaded before any component that depends on them is constructed.
+	// Precedence: settings store > env var > built-in default.
+	// -----------------------------------------------------------------------
+	var settingsStore *settings.Store
+	if sqliteStore != nil {
+		key, keyErr := settings.EnsureMasterKey("./data/master.key")
+		if keyErr != nil {
+			log.Warn("settings: cannot ensure master key; integration settings disabled", "error", keyErr)
+		} else if st, stErr := settings.New(sqliteStore, key); stErr != nil {
+			log.Warn("settings: cannot initialize settings store", "error", stErr)
+		} else {
+			settingsStore = st
+			log.Info("settings: encrypted integration settings store ready")
+		}
+	}
+	if settingsStore != nil {
+		if saved, ok, loadErr := settingsStore.LoadLokiSettings(ctx); loadErr != nil {
+			log.Warn("settings: failed to load persisted loki settings; using env/defaults", "error", loadErr)
+		} else if ok {
+			if d, parseErr := time.ParseDuration(saved.PollInterval); parseErr == nil {
+				cfg.Loki.PollInterval = d
+			}
+			if d, parseErr := time.ParseDuration(saved.Timeout); parseErr == nil {
+				cfg.Loki.Timeout = d
+			}
+			cfg.Loki.Addr = saved.Addr
+			cfg.Loki.Query = saved.Query
+			log.Info("settings: applied persisted loki configuration", "addr", saved.Addr)
+		}
 	}
 
 	// -----------------------------------------------------------------------
@@ -196,7 +230,13 @@ func runRun(args []string, cfg config.Config, log *slog.Logger) int {
 	mux.Handle("POST /slack/interactions", notif.InteractionsHandler())
 
 	// Web API + UI (catch-all; specific routes above take precedence).
-	apiSrv := api.NewServer(ctx, cfg.API, cor, orch, auditSink, notif, pol, cfg.Learner.Addr, log)
+	// intCtl stays a true nil interface when ing is nil (a nil *ingestor.Ingestor
+	// boxed directly into the interface would compare non-nil and panic on use).
+	var intCtl api.IntegrationsControl
+	if ing != nil {
+		intCtl = ing
+	}
+	apiSrv := api.NewServer(ctx, cfg.API, cor, orch, auditSink, notif, pol, cfg.Learner.Addr, intCtl, settingsStore, log)
 	mux.Handle("/", apiSrv.Handler(cfg.API.WebUIDir))
 
 	srv := &http.Server{
