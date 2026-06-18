@@ -130,6 +130,27 @@ file_hash() {
     fi
 }
 
+# Return a single hash representing the content of every .go file plus
+# go.mod/go.sum, so editing source code (not just dependencies) is correctly
+# detected as needing a rebuild — go.mod alone does not change on most edits.
+# Uses -print0/-z throughout since this project's path contains spaces.
+agent_source_hash() {
+    local hasher
+    if command -v md5sum &>/dev/null; then
+        hasher=md5sum
+    elif command -v md5 &>/dev/null; then
+        hasher="md5 -q"
+    else
+        echo "nohash"
+        return
+    fi
+    find "$PROJECT_ROOT/agent" \( -name '*.go' -o -name 'go.mod' -o -name 'go.sum' \) -type f -print0 2>/dev/null \
+        | sort -z \
+        | xargs -0 cat 2>/dev/null \
+        | $hasher \
+        | cut -d' ' -f1
+}
+
 # Locate python3 (3.11+)
 find_python() {
     for py in python3.11 python3.12 python3.13 python3; do
@@ -230,8 +251,9 @@ export GOPATH="$HOME/go"
 export GOMODCACHE="$HOME/go/pkg/mod"
 
 AGENT_HASH_MARKER="$PROJECT_ROOT/agent/.build_hash"
-# Hash the go.mod + go.sum to detect if a rebuild is needed
-AGENT_SRC_HASH=$(file_hash "$PROJECT_ROOT/agent/go.mod")
+# Hash all .go source files + go.mod/go.sum to detect if a rebuild is needed —
+# not just go.mod, so source-only edits (no new dependency) are still caught.
+AGENT_SRC_HASH=$(agent_source_hash)
 
 if [[ ! -x "$AGENT_BIN" ]]; then
     info "  Binary not found — building agent..."
@@ -240,7 +262,7 @@ elif [[ "$FORCE_REBUILD" == "true" ]]; then
     info "  --rebuild flag set — rebuilding agent..."
     BUILD_NEEDED=true
 elif [[ ! -f "$AGENT_HASH_MARKER" ]] || [[ "$(cat "$AGENT_HASH_MARKER")" != "$AGENT_SRC_HASH" ]]; then
-    info "  go.mod changed — rebuilding agent..."
+    info "  source changed — rebuilding agent..."
     BUILD_NEEDED=true
 else
     BUILD_NEEDED=false
