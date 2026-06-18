@@ -11,6 +11,7 @@ import AuditLog from './pages/AuditLog'
 import Analytics from './pages/Analytics'
 import Login from './pages/Login'
 import Integrations from './pages/Integrations'
+import Setup from './pages/Setup'
 
 export default function App() {
   return (
@@ -28,6 +29,7 @@ export default function App() {
             <Route path="/audit" element={<AuditLog />} />
             <Route path="/analytics" element={<Analytics />} />
             <Route path="/integrations" element={<Integrations />} />
+            <Route path="/setup" element={<Setup />} />
             <Route path="/login" element={<Login />} />
           </Routes>
           </ErrorBoundary>

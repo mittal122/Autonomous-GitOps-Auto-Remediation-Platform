@@ -1,8 +1,10 @@
 import { useCallback, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { api, type Incident } from '../api/client'
 import { useInterval } from '../hooks/useInterval'
 import { SkeletonTable } from '../components/Skeleton'
+
+const SETUP_DISMISSED_KEY = 'autosre_setup_dismissed'
 
 const REFRESH_MS = 30_000
 
@@ -16,6 +18,7 @@ const severityColor: Record<string, string> = {
 const ALL = 'all'
 
 export default function Dashboard() {
+  const navigate = useNavigate()
   const [incidents, setIncidents] = useState<Incident[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -39,6 +42,17 @@ export default function Dashboard() {
   useState(() => { load() })
   // auto-refresh every 30s
   useInterval(load, REFRESH_MS)
+
+  // First-run nudge: if nothing is configured yet and the user hasn't dismissed
+  // the wizard before, send them to /setup once.
+  useState(() => {
+    if (localStorage.getItem(SETUP_DISMISSED_KEY)) return
+    api.getIntegrations()
+      .then((summary) => {
+        if (!summary.any_configured) navigate('/setup')
+      })
+      .catch(() => {})
+  })
 
   const filtered = incidents.filter((inc) => {
     if (severityFilter !== ALL && inc.severity !== severityFilter) return false
