@@ -60,6 +60,7 @@ type Server struct {
 	learnerAddr string
 	ing         IntegrationsControl // nil when the Kubernetes/Loki ingestor isn't wired
 	k8s         KubernetesControl   // nil when Kubernetes API access isn't wired
+	llm         LLMConfigPusher     // nil when the diagnoser client isn't wired
 	settings    *settings.Store     // nil when persistence is unavailable
 	auth        *authMiddleware
 	rl          *ipRateLimiter
@@ -110,6 +111,7 @@ func NewServer(
 	learnerAddr string,
 	ing IntegrationsControl,
 	k8s KubernetesControl,
+	llm LLMConfigPusher,
 	settingsStore *settings.Store,
 	log *slog.Logger,
 ) *Server {
@@ -123,6 +125,7 @@ func NewServer(
 		learnerAddr: learnerAddr,
 		ing:         ing,
 		k8s:         k8s,
+		llm:         llm,
 		settings:    settingsStore,
 		auth:        newAuthMiddleware(ctx, cfg, log),
 		rl:          newIPRateLimiter(),
@@ -169,6 +172,11 @@ func (s *Server) Handler(webUIDir string) http.Handler {
 
 	// Zero-config integrations: Kubernetes (read-only — surfaces existing detection).
 	mux.Handle("GET /api/v1/integrations/kubernetes", s.auth.enforce(s.handle(s.handleGetKubernetesIntegration), RoleViewer))
+
+	// Zero-config integrations: AI Provider / LLM (viewer reads/tests, operator writes).
+	mux.Handle("GET /api/v1/integrations/llm", s.auth.enforce(s.handle(s.handleGetLLMIntegration), RoleViewer))
+	mux.Handle("POST /api/v1/integrations/llm", s.auth.enforce(s.handle(s.handleSaveLLMIntegration), RoleOperator))
+	mux.Handle("POST /api/v1/integrations/llm/test", s.auth.enforce(s.handle(s.handleTestLLMIntegration), RoleViewer))
 
 	// Zero-config integrations: Loki (viewer reads, operator writes).
 	mux.Handle("GET /api/v1/integrations/loki", s.auth.enforce(s.handle(s.handleGetLokiIntegration), RoleViewer))

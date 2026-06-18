@@ -15,6 +15,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"time"
 
@@ -122,6 +123,74 @@ func (c *Client) doRequest(ctx context.Context, incident contracts.Incident) (co
 		return contracts.Diagnosis{}, fmt.Errorf("diagnosis: decode response: %w", err), false
 	}
 	return dtoToDiagnosis(dto), nil, false
+}
+
+// LLMConfig is the payload sent to the diagnoser's POST /config/llm and
+// POST /config/llm/test endpoints. Never logged in full — APIKey is a secret.
+type LLMConfig struct {
+	Provider       string `json:"provider"` // "nim" | "gemini" | "" (disable)
+	APIKey         string `json:"api_key"`
+	Model          string `json:"model"`
+	TimeoutSeconds int    `json:"timeout_seconds"`
+}
+
+// LLMTestResult mirrors the diagnoser's POST /config/llm/test response.
+type LLMTestResult struct {
+	OK      bool   `json:"ok"`
+	Message string `json:"message"`
+}
+
+// PushConfig tells the diagnoser to rebuild its active LLM provider in place,
+// without a process restart. A single attempt, no retries — this is a
+// user-triggered interactive action, not part of the automated incident pipeline.
+func (c *Client) PushConfig(ctx context.Context, cfg LLMConfig) error {
+	body, err := json.Marshal(cfg)
+	if err != nil {
+		return fmt.Errorf("diagnosis: marshal llm config: %w", err)
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.cfg.Addr+"/config/llm", bytes.NewReader(body))
+	if err != nil {
+		return fmt.Errorf("diagnosis: build config request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return fmt.Errorf("diagnosis: POST /config/llm: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
+		return fmt.Errorf("diagnosis: config/llm returned %d: %s", resp.StatusCode, respBody)
+	}
+	return nil
+}
+
+// TestConfig asks the diagnoser to perform a one-shot connectivity test with cfg,
+// without applying it to the active service.
+func (c *Client) TestConfig(ctx context.Context, cfg LLMConfig) (LLMTestResult, error) {
+	body, err := json.Marshal(cfg)
+	if err != nil {
+		return LLMTestResult{}, fmt.Errorf("diagnosis: marshal llm config: %w", err)
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.cfg.Addr+"/config/llm/test", bytes.NewReader(body))
+	if err != nil {
+		return LLMTestResult{}, fmt.Errorf("diagnosis: build test request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return LLMTestResult{}, fmt.Errorf("diagnosis: POST /config/llm/test: %w", err)
+	}
+	defer resp.Body.Close()
+
+	var result LLMTestResult
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return LLMTestResult{}, fmt.Errorf("diagnosis: decode test response: %w", err)
+	}
+	return result, nil
 }
 
 func min(a, b int) int {

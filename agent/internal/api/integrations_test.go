@@ -68,7 +68,7 @@ func newTestServerWithIntegrations(t *testing.T, ing IntegrationsControl, oidcEn
 		OIDCEnabled:       oidcEnabled,
 		OIDCRolesClaimKey: "roles",
 	}, &fakeIncidentLister{}, &fakeControlPlane{},
-		&audit.MemorySink{}, notif, pol, "", ing, nil, settingsStore, log)
+		&audit.MemorySink{}, notif, pol, "", ing, nil, nil, settingsStore, log)
 }
 
 func TestGetIntegrationsSummary_NoneConfigured(t *testing.T) {

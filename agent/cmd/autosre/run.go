@@ -145,6 +145,24 @@ func runRun(args []string, cfg config.Config, log *slog.Logger) int {
 		Addr:    cfg.Diagnoser.Addr,
 		Timeout: cfg.Diagnoser.Timeout,
 	})
+	if settingsStore != nil {
+		if saved, ok, loadErr := settingsStore.LoadLLMSettings(ctx); loadErr != nil {
+			log.Warn("settings: failed to load persisted llm settings; diagnoser uses its own env vars", "error", loadErr)
+		} else if ok {
+			pushCtx, pushCancel := context.WithTimeout(ctx, 10*time.Second)
+			if pushErr := diagClient.PushConfig(pushCtx, diagnosis.LLMConfig{
+				Provider:       saved.Provider,
+				APIKey:         saved.APIKey,
+				Model:          saved.Model,
+				TimeoutSeconds: saved.TimeoutSeconds,
+			}); pushErr != nil {
+				log.Warn("settings: failed to push persisted llm config to diagnoser at startup", "error", pushErr)
+			} else {
+				log.Info("settings: applied persisted llm configuration", "provider", saved.Provider)
+			}
+			pushCancel()
+		}
+	}
 
 	notifOpts := []notifier.Option{}
 	if sqliteStore != nil {
@@ -253,7 +271,7 @@ func runRun(args []string, cfg config.Config, log *slog.Logger) int {
 	if ing != nil {
 		intCtl = ing
 	}
-	apiSrv := api.NewServer(ctx, cfg.API, cor, orch, auditSink, notif, pol, cfg.Learner.Addr, intCtl, k8sDetector, settingsStore, log)
+	apiSrv := api.NewServer(ctx, cfg.API, cor, orch, auditSink, notif, pol, cfg.Learner.Addr, intCtl, k8sDetector, diagClient, settingsStore, log)
 	mux.Handle("/", apiSrv.Handler(cfg.API.WebUIDir))
 
 	srv := &http.Server{
