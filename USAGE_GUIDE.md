@@ -20,6 +20,33 @@ All of this is visible in the Web Dashboard at `http://localhost:8080`.
 
 ---
 
+## Quick Start: The Setup Wizard (Recommended)
+
+As of this version, Loki and Alertmanager no longer require editing `.env` or restarting
+anything. After running `./start.sh` (see Part 3), open `http://localhost:8080` — on a fresh
+install you'll be redirected to **`/setup`**, a short wizard that walks through:
+
+1. **Welcome** — what you're about to configure
+2. **Loki** — paste a URL, click **Test connection**, click **Save** (applied live, no restart)
+3. **Alertmanager** — copy the generated webhook URL/YAML snippet, or click **Apply
+   automatically** if your cluster runs the Prometheus Operator
+4. **Done** — you're watching for incidents
+
+You can skip any step and come back later — everything in the wizard is also available
+permanently at **`/integrations`**, where you can edit settings, re-test connections, and see
+live health (last poll time, last error, whether Alertmanager's Operator CRD was detected).
+
+**Kubernetes is intentionally not part of this wizard.** The agent detects its own cluster
+access automatically from `IN_CLUSTER`/`KUBECONFIG` (see Part 1.2) — no credentials are ever
+entered through the web UI, since that would mean storing a credential capable of full cluster
+access in the database. The Integrations page shows this detection as a read-only status card.
+
+The rest of this guide (Parts 1–2 below) documents the underlying `.env` variables. They still
+work and are the right choice for headless/scripted deployments — but for an interactive
+first run, the wizard is faster and is now the recommended path.
+
+---
+
 ## Services Overview
 
 | Service | Language | Port | Purpose |
@@ -154,10 +181,16 @@ PAGERDUTY_ROUTING_KEY=your-32-char-routing-key
 
 If you have Grafana Loki running, the platform can poll it for error logs to detect incidents from application logs directly (in addition to Kubernetes events).
 
-Set in `.env`:
+**Recommended:** configure this through the Setup Wizard or the Integrations page
+(`/integrations`) in the web UI — no `.env` edit or restart needed, and you get a live "Test
+connection" check before saving. See **Quick Start** above.
+
+**Alternative (headless/scripted deployments):** set in `.env`:
 ```
 LOKI_ADDR=http://localhost:3100
 ```
+Note: a setting saved through the web UI takes precedence over this env var on the next
+restart (settings store > env var > built-in default).
 
 ---
 
@@ -307,6 +340,18 @@ Open your browser to: **http://localhost:8080**
 - Live outcome statistics from the learner service
 - Shows which failure modes get fixed most often, which actions succeed
 
+#### Integrations (`/integrations`)
+- Configure Loki and Alertmanager without touching `.env` — see Quick Start above
+- Kubernetes card shows read-only connectivity status (in-cluster/kubeconfig, server version)
+- Loki card: live form with **Test connection** and **Save** (applied immediately, no restart)
+- Alertmanager card: webhook URL + YAML snippet with Copy buttons, **Apply automatically**
+  (via Prometheus Operator, when detected) and **Send test webhook**
+
+#### Setup Wizard (`/setup`)
+- First-run-only redirect target; same functionality as the Integrations page, presented as a
+  guided 4-step flow. Dismissing it (Skip or Finish) sets a flag in `localStorage` so it won't
+  redirect you again — visit `/setup` directly any time to re-run it.
+
 #### System Status (`/status`)
 - Shows the live state of the orchestrator:
   - Is ApplyEnabled on or off?
@@ -373,7 +418,11 @@ This is the full lifecycle of what happens when a pod crashes:
 
 ## Part 6 — Sending Test Alerts (Without a Real Cluster)
 
-You can test the full pipeline by POSTing a fake Alertmanager webhook to the agent:
+The easiest way to test the webhook path end-to-end is the **Send test webhook** button on
+`/integrations` — it exercises the real handler and reports success/failure without you needing
+to construct a payload by hand.
+
+To do it manually, you can test the full pipeline by POSTing a fake Alertmanager webhook to the agent:
 
 ```bash
 curl -X POST http://localhost:8080/webhook/alertmanager \
