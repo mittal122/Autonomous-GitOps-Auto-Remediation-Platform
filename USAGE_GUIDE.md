@@ -20,11 +20,15 @@ All of this is visible in the Web Dashboard at `http://localhost:8080`.
 
 ---
 
-## Quick Start: The Setup Wizard (Recommended)
+## Quick Start: The Settings Page (Recommended)
 
-As of this version, Loki and Alertmanager no longer require editing `.env` or restarting
-anything. After running `./start.sh` (see Part 3), open `http://localhost:8080` — on a fresh
-install you'll be redirected to **`/setup`**, a short wizard that walks through:
+As of this version, **nothing in this guide requires editing `.env` or restarting anything** —
+Loki, Alertmanager, the AI provider (NVIDIA NIM/Gemini), Slack, PagerDuty, and the GitOps
+remediation repo are all configured through the web UI and apply live. After running
+`./start.sh` (see Part 3), open `http://localhost:8080`.
+
+**First run:** you'll be redirected to **`/setup`**, a short wizard covering the two most
+common integrations:
 
 1. **Welcome** — what you're about to configure
 2. **Loki** — paste a URL, click **Test connection**, click **Save** (applied live, no restart)
@@ -32,18 +36,31 @@ install you'll be redirected to **`/setup`**, a short wizard that walks through:
    automatically** if your cluster runs the Prometheus Operator
 4. **Done** — you're watching for incidents
 
-You can skip any step and come back later — everything in the wizard is also available
-permanently at **`/integrations`**, where you can edit settings, re-test connections, and see
-live health (last poll time, last error, whether Alertmanager's Operator CRD was detected).
+**Everything else (and the wizard's own settings) live permanently at `/settings`** — a single
+page with a section nav:
 
-**Kubernetes is intentionally not part of this wizard.** The agent detects its own cluster
-access automatically from `IN_CLUSTER`/`KUBECONFIG` (see Part 1.2) — no credentials are ever
-entered through the web UI, since that would mean storing a credential capable of full cluster
-access in the database. The Integrations page shows this detection as a read-only status card.
+| Section | What it configures |
+|---|---|
+| **Telemetry** | Kubernetes (read-only status), Loki, Alertmanager — same as the wizard |
+| **AI Provider** | NVIDIA NIM or Gemini API key/model, with a live test call before saving |
+| **Notifications** | Slack bot token/signing secret/channel, PagerDuty routing key |
+| **GitOps & Remediation** | Repo path, remote URL, git token/SSH key, bot identity, branch |
+| **Safety Controls** | The Apply Enabled toggle (dry-run vs. real commits) |
+
+Every secret field is masked by default; click **Show** next to a saved secret to reveal it
+(admin role required — every reveal is recorded in the audit log).
+
+**Kubernetes is intentionally not configurable here.** The agent detects its own cluster access
+automatically from `IN_CLUSTER`/`KUBECONFIG` (see Part 1.2) — no credentials are ever entered
+through the web UI, since that would mean storing a credential capable of full cluster access in
+the database. The Settings page's Telemetry section shows this detection as a read-only status
+card only.
 
 The rest of this guide (Parts 1–2 below) documents the underlying `.env` variables. They still
-work and are the right choice for headless/scripted deployments — but for an interactive
-first run, the wizard is faster and is now the recommended path.
+work and are the right choice for headless/scripted deployments, and are read as the default the
+first time a service starts (a setting saved through the web UI then takes precedence on every
+later restart) — but for an interactive first run, the Settings page is faster and is now the
+recommended path.
 
 ---
 
@@ -114,18 +131,18 @@ No push, no ArgoCD. Actions stay local — safe for testing.
 **Option B — Use a real GitHub repo (for production)**
 1. Create a new GitHub repo (e.g. `your-org/gitops-config`)
 2. Clone it somewhere on your machine
-3. Set in `.env`:
+3. Get a GitHub token: https://github.com/settings/tokens → "Generate new token (classic)" →
+   scope `repo` → copy it (starts with `ghp_`)
+4. **Recommended:** enter the repo path, remote URL, and token in `/settings` → **GitOps &
+   Remediation** — click **Test connection** (a read-only `git ls-remote`, confirms the token
+   works without writing anything) before saving. Applies live, no restart.
+
+**Alternative (headless/scripted deployments):** set in `.env`:
 ```
 GITOPS_REPO_PATH=/path/to/cloned/gitops-config
 GIT_REMOTE_URL=https://github.com/your-org/gitops-config.git
 GIT_TOKEN=ghp_yourGitHubPersonalAccessToken
 ```
-
-How to get a GitHub token:
-- Go to https://github.com/settings/tokens
-- Click "Generate new token (classic)"
-- Select scope: `repo` (full control of private repositories)
-- Copy the token — it starts with `ghp_`
 
 ### 1.4 Optional but Recommended: NVIDIA NIM API Key
 
@@ -137,7 +154,11 @@ This gives the platform real AI-powered diagnosis. Without it, it falls back to 
 - Click "Get API Key"
 - Copy the key — it starts with `nvapi-`
 
-Set in `.env`:
+**Recommended:** paste it into `/settings` → **AI Provider** — click **Test connection** (a real,
+one-shot call to the model) before saving. Applies live; the diagnoser switches providers
+without a restart.
+
+**Alternative (headless/scripted deployments):** set in `.env`:
 ```
 NIM_API_KEY=nvapi-yourKeyHere
 ```
@@ -157,7 +178,11 @@ When the platform detects an incident or needs human approval, it messages Slack
 6. Invite the bot to your channel: `/invite @AutoSRE`
 7. Get your channel ID: right-click the channel in Slack → "Copy link" → the ID is the last part (starts with `C`)
 
-Set in `.env`:
+**Recommended:** enter the bot token, signing secret, and channel ID in `/settings` →
+**Notifications** — click **Test connection** (calls Slack's real `auth.test` API, read-only) before
+saving. Applies live.
+
+**Alternative (headless/scripted deployments):** set in `.env`:
 ```
 SLACK_BOT_TOKEN=xoxb-your-bot-token
 SLACK_SIGNING_SECRET=your-signing-secret
@@ -172,7 +197,11 @@ If Slack approval times out or a critical alert needs immediate escalation:
 2. Add "Events API v2" integration
 3. Copy the "Integration Key"
 
-Set in `.env`:
+**Recommended:** paste it into `/settings` → **Notifications**. PagerDuty has no harmless
+connectivity ping, so **Validate format** only checks the key looks right (32 characters) — full
+verification happens the first time it's actually used to escalate.
+
+**Alternative (headless/scripted deployments):** set in `.env`:
 ```
 PAGERDUTY_ROUTING_KEY=your-32-char-routing-key
 ```
@@ -181,9 +210,9 @@ PAGERDUTY_ROUTING_KEY=your-32-char-routing-key
 
 If you have Grafana Loki running, the platform can poll it for error logs to detect incidents from application logs directly (in addition to Kubernetes events).
 
-**Recommended:** configure this through the Setup Wizard or the Integrations page
-(`/integrations`) in the web UI — no `.env` edit or restart needed, and you get a live "Test
-connection" check before saving. See **Quick Start** above.
+**Recommended:** configure this through the Setup Wizard or `/settings` → **Telemetry** in the
+web UI — no `.env` edit or restart needed, and you get a live "Test connection" check before
+saving. See **Quick Start** above.
 
 **Alternative (headless/scripted deployments):** set in `.env`:
 ```
@@ -340,17 +369,23 @@ Open your browser to: **http://localhost:8080**
 - Live outcome statistics from the learner service
 - Shows which failure modes get fixed most often, which actions succeed
 
-#### Integrations (`/integrations`)
-- Configure Loki and Alertmanager without touching `.env` — see Quick Start above
-- Kubernetes card shows read-only connectivity status (in-cluster/kubeconfig, server version)
-- Loki card: live form with **Test connection** and **Save** (applied immediately, no restart)
-- Alertmanager card: webhook URL + YAML snippet with Copy buttons, **Apply automatically**
-  (via Prometheus Operator, when detected) and **Send test webhook**
+#### Settings (`/settings`)
+- Every piece of runtime configuration in one place — see Quick Start above. Section nav on the
+  left:
+  - **Telemetry** — Kubernetes (read-only status), Loki (live Test + Save), Alertmanager
+    (webhook URL/snippet, Apply automatically via Prometheus Operator, Send test webhook)
+  - **AI Provider** — NVIDIA NIM or Gemini key/model, Test connection (real one-shot model call)
+  - **Notifications** — Slack (Test via `auth.test`) and PagerDuty (format validation)
+  - **GitOps & Remediation** — repo path, remote, token/SSH key, bot identity, branch, Test
+    connection (read-only `git ls-remote`)
+  - **Safety Controls** — the Apply Enabled toggle (dry-run vs. real commits)
+- Every saved secret is masked; click **Show** to reveal it (admin role required, audited)
+- `/integrations` redirects here for compatibility with older links
 
 #### Setup Wizard (`/setup`)
-- First-run-only redirect target; same functionality as the Integrations page, presented as a
-  guided 4-step flow. Dismissing it (Skip or Finish) sets a flag in `localStorage` so it won't
-  redirect you again — visit `/setup` directly any time to re-run it.
+- First-run-only redirect target; covers Loki + Alertmanager as a guided 4-step flow (the
+  Settings page covers everything else). Dismissing it (Skip or Finish) sets a flag in
+  `localStorage` so it won't redirect you again — visit `/setup` directly any time to re-run it.
 
 #### System Status (`/status`)
 - Shows the live state of the orchestrator:
@@ -485,16 +520,16 @@ Autonomy levels (from least to most autonomous):
 
 By default, the platform is in safe mode — it diagnoses and proposes fixes but never actually changes anything in your cluster.
 
-To enable real GitOps commits, change these two settings in `.env`:
+**Recommended:** first set up your GitOps repo and credentials in `/settings` → **GitOps &
+Remediation** (click **Test connection** to confirm push access before saving). Then flip the
+toggle in `/settings` → **Safety Controls** → **Apply Enabled**. Both take effect immediately —
+no restart needed. Admin role is required to toggle Apply Enabled, same as the kill switch.
+
+**Alternative (headless/scripted deployments):** change these in `.env`, then restart:
 
 ```bash
 ORCHESTRATOR_APPLY_ENABLED=true   # allow the agent to commit YAML changes
 REMEDIATION_DRY_RUN=false         # allow individual actions to run for real
-```
-
-Then also set your GitOps repo and credentials:
-
-```bash
 GITOPS_REPO_PATH=/path/to/your/gitops-repo
 GIT_REMOTE_URL=https://github.com/your-org/gitops-config.git
 GIT_TOKEN=ghp_yourGitHubToken
@@ -609,7 +644,7 @@ export PATH=$PATH:/usr/local/go/bin
 - Check `logs/agent.log` for Kubernetes connection errors
 
 ### Diagnoser shows "running in fallback-only mode"
-- Your `NIM_API_KEY` is not set or is empty
+- No AI provider is configured yet — set one in `/settings` → **AI Provider** (or `NIM_API_KEY` in `.env`)
 - The rule-based fallback still works, just less accurate
 - Set `NIM_API_KEY=nvapi-...` in `.env` and restart
 
@@ -618,7 +653,8 @@ export PATH=$PATH:/usr/local/go/bin
 - Check that `npm` is installed: `npm --version`
 
 ### Approvals not appearing in Slack
-- Check `SLACK_BOT_TOKEN`, `SLACK_SIGNING_SECRET`, `SLACK_CHANNEL_ID` are all set
+- Check `/settings` → **Notifications** shows Slack as configured (or `SLACK_BOT_TOKEN`/`SLACK_SIGNING_SECRET`/`SLACK_CHANNEL_ID` are set in `.env`)
+- Click **Test connection** on the Slack card — it calls the real `auth.test` API and tells you if the token is bad
 - Make sure the bot is invited to the channel: `/invite @AutoSRE` in Slack
 - Check `logs/agent.log` for Slack API errors
 
