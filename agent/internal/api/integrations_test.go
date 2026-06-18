@@ -71,6 +71,43 @@ func newTestServerWithIntegrations(t *testing.T, ing IntegrationsControl, oidcEn
 		&audit.MemorySink{}, notif, pol, "", ing, nil, settingsStore, log)
 }
 
+func TestGetIntegrationsSummary_NoneConfigured(t *testing.T) {
+	srv := newTestServerWithIntegrations(t, nil, false)
+	rr := doRequest(t, srv.Handler(""), http.MethodGet, "/api/v1/integrations", nil, "")
+	if rr.Code != http.StatusOK {
+		t.Fatalf("want 200, got %d: %s", rr.Code, rr.Body)
+	}
+	var got integrationsSummaryResponse
+	if err := json.Unmarshal(rr.Body.Bytes(), &got); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if got.AnyConfigured {
+		t.Errorf("expected AnyConfigured=false, got %+v", got)
+	}
+	if !strings.HasSuffix(got.Alertmanager.WebhookURL, "/webhook/alertmanager") {
+		t.Errorf("unexpected webhook URL: %q", got.Alertmanager.WebhookURL)
+	}
+}
+
+func TestGetIntegrationsSummary_ReflectsSavedLoki(t *testing.T) {
+	srv := newTestServerWithIntegrations(t, &fakeIntegrationsControl{}, true)
+	operator := makeBearer([]string{"operator"})
+
+	saveBody := []byte(`{"addr":"http://loki:3100"}`)
+	if rr := doRequest(t, srv.Handler(""), http.MethodPost, "/api/v1/integrations/loki", saveBody, operator); rr.Code != http.StatusOK {
+		t.Fatalf("save failed: %d: %s", rr.Code, rr.Body)
+	}
+
+	rr := doRequest(t, srv.Handler(""), http.MethodGet, "/api/v1/integrations", nil, operator)
+	var got integrationsSummaryResponse
+	if err := json.Unmarshal(rr.Body.Bytes(), &got); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if !got.AnyConfigured || !got.Loki.Configured {
+		t.Errorf("expected Loki configured after save, got %+v", got)
+	}
+}
+
 func TestGetKubernetesIntegration_NoControl(t *testing.T) {
 	srv := newTestServerWithIntegrations(t, nil, false)
 	rr := doRequest(t, srv.Handler(""), http.MethodGet, "/api/v1/integrations/kubernetes", nil, "")

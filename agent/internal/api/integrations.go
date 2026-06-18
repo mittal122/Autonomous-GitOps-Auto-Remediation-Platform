@@ -36,6 +36,57 @@ type KubernetesControl interface {
 }
 
 // ---------------------------------------------------------------------------
+// GET /api/v1/integrations — aggregate summary for the dashboard and the setup
+// wizard's first-run detection.
+// ---------------------------------------------------------------------------
+
+type integrationsSummaryResponse struct {
+	Loki          lokiSummary         `json:"loki"`
+	Alertmanager  alertmanagerSummary `json:"alertmanager"`
+	Kubernetes    k8sdetect.Status    `json:"kubernetes"`
+	AnyConfigured bool                `json:"any_configured"`
+}
+
+type lokiSummary struct {
+	Configured bool                `json:"configured"`
+	Status     ingestor.LokiStatus `json:"status"`
+}
+
+type alertmanagerSummary struct {
+	WebhookURL       string `json:"webhook_url"`
+	OperatorDetected bool   `json:"operator_detected"`
+}
+
+func (s *Server) handleGetIntegrationsSummary(w http.ResponseWriter, r *http.Request) error {
+	var loki lokiSummary
+	if s.settings != nil {
+		if _, ok, err := s.settings.LoadLokiSettings(r.Context()); err == nil && ok {
+			loki.Configured = true
+		}
+	}
+	if s.ing != nil {
+		loki.Status = s.ing.LokiStatus()
+		if !loki.Configured && loki.Status.Enabled {
+			loki.Configured = true
+		}
+	}
+
+	am := alertmanagerSummary{WebhookURL: alertmanagerWebhookURL(r)}
+	k8sStatus := k8sdetect.Status{Connected: false, Error: "Kubernetes API access not configured"}
+	if s.k8s != nil {
+		am.OperatorDetected = s.k8s.OperatorDetected(r.Context())
+		k8sStatus = s.k8s.Status(r.Context())
+	}
+
+	return jsonOK(w, integrationsSummaryResponse{
+		Loki:          loki,
+		Alertmanager:  am,
+		Kubernetes:    k8sStatus,
+		AnyConfigured: loki.Configured,
+	})
+}
+
+// ---------------------------------------------------------------------------
 // GET /api/v1/integrations/kubernetes
 // ---------------------------------------------------------------------------
 

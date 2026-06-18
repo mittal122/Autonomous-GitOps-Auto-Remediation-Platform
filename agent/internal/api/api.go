@@ -164,6 +164,9 @@ func (s *Server) Handler(webUIDir string) http.Handler {
 	// Paginated audit log (viewer+).
 	mux.Handle("GET /api/v1/audit", s.auth.enforce(s.handle(s.handleListAudit), RoleViewer))
 
+	// Zero-config integrations: aggregate summary (dashboard + setup wizard first-run check).
+	mux.Handle("GET /api/v1/integrations", s.auth.enforce(s.handle(s.handleGetIntegrationsSummary), RoleViewer))
+
 	// Zero-config integrations: Kubernetes (read-only — surfaces existing detection).
 	mux.Handle("GET /api/v1/integrations/kubernetes", s.auth.enforce(s.handle(s.handleGetKubernetesIntegration), RoleViewer))
 
