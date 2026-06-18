@@ -147,7 +147,7 @@ export default function Dashboard() {
                     {(inc.affected_resources ?? []).join(', ') || '—'}
                   </td>
                   <td className="px-4 py-3 text-gray-500 text-xs">
-                    {new Date(inc.created_at).toLocaleString()}
+                    {new Date(inc.opened_at).toLocaleString()}
                   </td>
                   <td className="px-4 py-3">
                     <Link to={`/incidents/${inc.id}/trace`} className="text-indigo-600 hover:underline text-xs">

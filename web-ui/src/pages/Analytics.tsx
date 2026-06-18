@@ -55,10 +55,10 @@ export default function Analytics() {
 
   const { stats, incidents } = data
 
-  // MTTR: average time from created_at to updated_at for resolved incidents
-  const resolved = incidents.filter((i) => i.status === 'RECOVERED' || i.status === 'RESOLVED')
+  // MTTR: average time from opened_at to updated_at for resolved incidents
+  const resolved = incidents.filter((i) => i.status === 'resolved')
   const mttrMs = resolved.length > 0
-    ? resolved.reduce((sum, i) => sum + (new Date(i.updated_at).getTime() - new Date(i.created_at).getTime()), 0) / resolved.length
+    ? resolved.reduce((sum, i) => sum + (new Date(i.updated_at).getTime() - new Date(i.opened_at).getTime()), 0) / resolved.length
     : null
   const mttrMin = mttrMs != null ? (mttrMs / 60000).toFixed(1) : '—'
 

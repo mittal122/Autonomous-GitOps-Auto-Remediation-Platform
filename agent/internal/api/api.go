@@ -20,6 +20,8 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strconv"
 	"sync"
 	"time"
@@ -223,9 +225,12 @@ func (s *Server) Handler(webUIDir string) http.Handler {
 	// CORS pre-flight for cross-origin calls from the Vite dev server.
 	mux.HandleFunc("/api/", corsHeaders)
 
-	// Web UI static files or placeholder.
+	// Web UI static files or placeholder. spaFileServer falls back to index.html
+	// for any path that isn't a real file, so a direct browser navigation or
+	// reload on a client-side route (e.g. /settings, /analytics) works — not
+	// just <Link> transitions, which never leave the already-loaded index.html.
 	if webUIDir != "" {
-		mux.Handle("/", http.FileServer(http.Dir(webUIDir)))
+		mux.Handle("/", spaFileServer(webUIDir))
 	} else {
 		mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 			if r.URL.Path != "/" {
@@ -238,6 +243,25 @@ func (s *Server) Handler(webUIDir string) http.Handler {
 	}
 
 	return s.rateLimited(mux)
+}
+
+// spaFileServer serves static files from dir, falling back to index.html for
+// any request path that doesn't correspond to a real file (or is a directory).
+// This is the standard single-page-app fallback: client-side routes like
+// /settings or /incidents/{id}/trace have no matching file on disk, so without
+// this they'd 404 on a direct navigation or page reload instead of letting
+// React Router resolve the route after index.html loads.
+func spaFileServer(dir string) http.Handler {
+	fileServer := http.FileServer(http.Dir(dir))
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		cleanPath := filepath.Clean(r.URL.Path)
+		fullPath := filepath.Join(dir, cleanPath)
+		if info, err := os.Stat(fullPath); err != nil || info.IsDir() {
+			http.ServeFile(w, r, filepath.Join(dir, "index.html"))
+			return
+		}
+		fileServer.ServeHTTP(w, r)
+	})
 }
 
 // rateLimited wraps next with per-IP rate limiting.
@@ -283,15 +307,37 @@ func clientIP(r *http.Request) string {
 // GET handlers (read-only)
 // ---------------------------------------------------------------------------
 
+// incidentDTO is the web UI-facing representation of contracts.Incident. It adds
+// a derived Status field ("open"/"resolved") since the internal type only tracks
+// ResolvedAt (zero value = open) — there is no separate status concept in the
+// domain model, so the API layer derives one for display purposes.
+type incidentDTO struct {
+	contracts.Incident
+	Status string `json:"status"`
+}
+
+func toIncidentDTO(inc contracts.Incident) incidentDTO {
+	status := "open"
+	if !inc.ResolvedAt.IsZero() {
+		status = "resolved"
+	}
+	return incidentDTO{Incident: inc, Status: status}
+}
+
 func (s *Server) handleListIncidents(w http.ResponseWriter, _ *http.Request) error {
-	return jsonOK(w, s.cor.ListIncidents())
+	incidents := s.cor.ListIncidents()
+	dtos := make([]incidentDTO, len(incidents))
+	for i, inc := range incidents {
+		dtos[i] = toIncidentDTO(inc)
+	}
+	return jsonOK(w, dtos)
 }
 
 func (s *Server) handleGetIncident(w http.ResponseWriter, r *http.Request) error {
 	id := r.PathValue("id")
 	for _, inc := range s.cor.ListIncidents() {
 		if inc.ID == id {
-			return jsonOK(w, inc)
+			return jsonOK(w, toIncidentDTO(inc))
 		}
 	}
 	return &apiError{"incident not found", http.StatusNotFound}

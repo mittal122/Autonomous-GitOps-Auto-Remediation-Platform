@@ -19,47 +19,47 @@ import (
 // (Prometheus alert, Loki log event, Kubernetes watch event, etc.).
 type Signal struct {
 	// ID uniquely identifies this signal.
-	ID string
+	ID string `json:"id"`
 	// Source identifies the originating system ("k8s-event", "prometheus-alert", "loki-log").
-	Source string
+	Source string `json:"source"`
 	// Namespace and Resource locate the affected Kubernetes resource.
-	Namespace string
+	Namespace string `json:"namespace"`
 	// Kind is the Kubernetes resource kind (e.g. "Pod", "Node", "Deployment").
-	Kind string
+	Kind string `json:"kind"`
 	// Resource is the name of the involved Kubernetes resource.
-	Resource string
+	Resource string `json:"resource"`
 	// Reason is the normalized failure indicator (e.g. "OOMKilled", "CrashLoopBackOff").
-	Reason string
+	Reason string `json:"reason"`
 	// Message is a human-readable description from the source system.
-	Message string
+	Message string `json:"message"`
 	// Severity is one of: "critical", "warning", "info".
-	Severity string
+	Severity string `json:"severity"`
 	// Labels carries arbitrary key/value metadata from the source system.
-	Labels map[string]string
+	Labels map[string]string `json:"labels"`
 	// RawPayload is the original JSON payload for audit purposes.
-	RawPayload []byte
+	RawPayload []byte `json:"raw_payload,omitempty"`
 	// ReceivedAt is when the agent received this signal.
-	ReceivedAt time.Time
+	ReceivedAt time.Time `json:"received_at"`
 }
 
 // Incident represents a correlated set of Signals that together describe a
 // single operational problem. The correlator produces Incidents from Signals.
 type Incident struct {
 	// ID uniquely identifies this incident.
-	ID string
+	ID string `json:"id"`
 	// Signals are the raw telemetry events that triggered this incident.
-	Signals []Signal
+	Signals []Signal `json:"signals"`
 	// AffectedResources lists Kubernetes resources involved.
-	AffectedResources []string
+	AffectedResources []string `json:"affected_resources"`
 	// Severity is the highest severity among member Signals.
-	Severity string
+	Severity string `json:"severity"`
 	// OpenedAt is when the first contributing Signal arrived.
-	OpenedAt time.Time
+	OpenedAt time.Time `json:"opened_at"`
 	// UpdatedAt is when the most recent Signal was appended.
-	UpdatedAt time.Time
+	UpdatedAt time.Time `json:"updated_at"`
 	// ResolvedAt is set when the correlator closes this incident (no signals for ResolveWindow).
 	// Zero value means the incident is still open.
-	ResolvedAt time.Time
+	ResolvedAt time.Time `json:"resolved_at,omitempty"`
 }
 
 // Diagnosis is the structured output produced by the LLM diagnoser for an

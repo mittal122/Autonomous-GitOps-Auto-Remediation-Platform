@@ -37,8 +37,9 @@ export interface Incident {
   severity: string
   affected_resources: string[]
   status: string
-  created_at: string
+  opened_at: string
   updated_at: string
+  resolved_at?: string
   signals?: unknown[]
 }
 
