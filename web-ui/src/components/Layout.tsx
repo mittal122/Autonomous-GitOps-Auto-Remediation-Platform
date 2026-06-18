@@ -6,6 +6,7 @@ const nav = [
   { to: '/audit', label: 'Audit Log' },
   { to: '/analytics', label: 'Analytics' },
   { to: '/stats', label: 'Stats' },
+  { to: '/integrations', label: 'Integrations' },
   { to: '/status', label: 'System' },
 ]
 

@@ -110,6 +110,58 @@ export interface AuditListResponse {
   offset: number
 }
 
+export interface KubernetesStatus {
+  connected: boolean
+  in_cluster: boolean
+  server_version?: string
+  error?: string
+}
+
+export interface LokiStatus {
+  enabled: boolean
+  addr?: string
+  last_poll_at?: string
+  last_error?: string
+  last_signal_count: number
+}
+
+export interface LokiIntegration {
+  configured: boolean
+  addr?: string
+  query?: string
+  poll_interval?: string
+  timeout?: string
+  has_auth_header: boolean
+  status: LokiStatus
+}
+
+export interface LokiTestResult {
+  ok: boolean
+  message: string
+  sample_lines?: string[]
+}
+
+export interface AlertmanagerIntegration {
+  webhook_url: string
+  yaml_snippet: string
+  operator_detected: boolean
+}
+
+export interface IntegrationsSummary {
+  loki: { configured: boolean; status: LokiStatus }
+  alertmanager: { webhook_url: string; operator_detected: boolean }
+  kubernetes: KubernetesStatus
+  any_configured: boolean
+}
+
+export interface SaveLokiRequest {
+  addr: string
+  query?: string
+  poll_interval?: string
+  timeout?: string
+  auth_header?: string
+}
+
 // ---------------------------------------------------------------------------
 // API calls
 // ---------------------------------------------------------------------------
@@ -135,4 +187,16 @@ export const api = {
     if (params.offset != null) q.set('offset', String(params.offset))
     return get<AuditListResponse>(`/audit?${q}`)
   },
+
+  getIntegrations: () => get<IntegrationsSummary>('/integrations'),
+  getKubernetesStatus: () => get<KubernetesStatus>('/integrations/kubernetes'),
+
+  getLokiIntegration: () => get<LokiIntegration>('/integrations/loki'),
+  saveLokiIntegration: (req: SaveLokiRequest) => post<{ saved: boolean; addr: string }>('/integrations/loki', req),
+  testLokiIntegration: (req: SaveLokiRequest) => post<LokiTestResult>('/integrations/loki/test', req),
+
+  getAlertmanagerIntegration: () => get<AlertmanagerIntegration>('/integrations/alertmanager'),
+  applyAlertmanagerIntegration: () =>
+    post<{ applied: boolean; reason: string; webhook_url: string }>('/integrations/alertmanager/apply'),
+  testAlertmanagerIntegration: () => post<{ ok: boolean; message: string }>('/integrations/alertmanager/test'),
 }
