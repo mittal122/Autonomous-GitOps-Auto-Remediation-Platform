@@ -39,22 +39,62 @@ warn()    { echo -e "${YELLOW}[autosre]${NC} $*"; }
 error()   { echo -e "${RED}[autosre]${NC} $*" >&2; }
 step()    { echo -e "${BLUE}[autosre]${NC} $*"; }
 
+# stop_service kills any process tracked by .run/<name>.pid, if still alive.
+# Returns 0 if something was stopped, 1 if nothing was running. Always removes
+# the (possibly stale) pid file. Used both by --stop and unconditionally before
+# every service start below, so re-running ./start.sh without --stop first
+# can never leave an orphaned old process squatting on a port — the classic
+# failure mode where a freshly rebuilt binary fails to bind, exits immediately,
+# and the *old* process keeps answering health checks as if nothing changed.
+stop_service() {
+    local svc="$1"
+    local pidfile="$PIDS_DIR/$svc.pid"
+    local result=1
+    if [[ -f "$pidfile" ]]; then
+        local pid
+        pid=$(cat "$pidfile")
+        if kill -0 "$pid" 2>/dev/null; then
+            kill "$pid" 2>/dev/null || true
+            for _ in $(seq 1 20); do
+                kill -0 "$pid" 2>/dev/null || break
+                sleep 0.2
+            done
+            kill -0 "$pid" 2>/dev/null && kill -9 "$pid" 2>/dev/null || true
+            result=0
+        fi
+        rm -f "$pidfile"
+    fi
+    mkdir -p "$PIDS_DIR"
+    return $result
+}
+
+# kill_port forcibly frees a TCP port by killing whatever process is bound to
+# it, regardless of whether stop_service's pid-file tracking knows about it.
+# Defense-in-depth against orphaned processes from a crashed/manually-started
+# run, which stop_service alone cannot see.
+kill_port() {
+    local port="$1"
+    local pids=""
+    if command -v lsof &>/dev/null; then
+        pids=$(lsof -ti ":$port" 2>/dev/null || true)
+    elif command -v fuser &>/dev/null; then
+        pids=$(fuser "$port/tcp" 2>/dev/null | awk '{print $1}' || true)
+    fi
+    [[ -z "$pids" ]] && return 1
+    kill $pids 2>/dev/null || true
+    sleep 0.3
+    kill -9 $pids 2>/dev/null || true
+    return 0
+}
+
 # ── --stop ────────────────────────────────────────────────────────────────────
 if [[ "${1:-}" == "--stop" ]]; then
     info "Stopping all AutoSRE services..."
     stopped=0
     for svc in agent diagnoser learner; do
-        pidfile="$PIDS_DIR/$svc.pid"
-        if [[ -f "$pidfile" ]]; then
-            pid=$(cat "$pidfile")
-            if kill -0 "$pid" 2>/dev/null; then
-                kill "$pid"
-                success "  Stopped $svc (pid $pid)"
-                (( stopped++ )) || true
-            else
-                warn "  $svc pid file stale (process already gone)"
-            fi
-            rm -f "$pidfile"
+        if stop_service "$svc"; then
+            success "  Stopped $svc"
+            (( stopped++ )) || true
         else
             warn "  $svc is not running"
         fi
@@ -348,6 +388,10 @@ wait_healthy() {
 # ── learner (port 8002) ───────────────────────────────────────────────────────
 LEARNER_PORT="${LEARNER_PORT:-8002}"
 step "── starting learner on port $LEARNER_PORT ──────────────"
+if stop_service learner; then
+    info "  Stopped previous learner instance first"
+fi
+kill_port "$LEARNER_PORT" && info "  Freed port $LEARNER_PORT (untracked process)"
 LEARNER_STATS_PATH="${LEARNER_STATS_PATH:-$DATA_DIR/outcomes.jsonl}" \
 LEARNER_PORT="$LEARNER_PORT" \
 LEARNER_HOST="${LEARNER_HOST:-127.0.0.1}" \
@@ -366,6 +410,10 @@ echo ""
 # ── diagnoser (port 8001) ─────────────────────────────────────────────────────
 DIAGNOSER_PORT="${DIAGNOSER_PORT:-8001}"
 step "── starting diagnoser on port $DIAGNOSER_PORT ─────────────"
+if stop_service diagnoser; then
+    info "  Stopped previous diagnoser instance first"
+fi
+kill_port "$DIAGNOSER_PORT" && info "  Freed port $DIAGNOSER_PORT (untracked process)"
 NIM_API_KEY="${NIM_API_KEY:-}" \
 NIM_MODEL="${NIM_MODEL:-meta/llama-3.3-70b-instruct}" \
 GEMINI_API_KEY="${GEMINI_API_KEY:-}" \
@@ -394,6 +442,10 @@ echo ""
 
 # ── agent (port 8080) ─────────────────────────────────────────────────────────
 step "── starting agent on port 8080 ────────────────────────"
+if stop_service agent; then
+    info "  Stopped previous agent instance first"
+fi
+kill_port 8080 && info "  Freed port 8080 (untracked process)"
 cd "$PROJECT_ROOT"
 WEB_UI_DIR="${WEB_UI_DIST:-}" \
 DIAGNOSER_ADDR="${DIAGNOSER_ADDR:-http://127.0.0.1:$DIAGNOSER_PORT}" \
